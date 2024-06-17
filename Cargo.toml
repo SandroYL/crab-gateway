@@ -1,9 +1,9 @@
-[package]
-name = "crab-gateway"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+resolver = "2"
+members = [
+    "gateway-basic",
+    "gateway-error",
+]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-tokio = { version = "1.38.0", features = ["full"] }
+[profile.bench]
+debug = true

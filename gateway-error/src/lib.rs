@@ -1,13 +1,15 @@
+mod test_mod;
+
 use std::fmt::{self};
 use std::error::Error as ErrorTrait;
 
 #[derive(Debug)]
 pub struct Error {
-    pub error_type: ErrorType,
-    pub error_source: ErrorSource,
-    pub error_retry: RetryType,
-    pub error_cause: Option<Box<(dyn ErrorTrait + Send + Sync)>>,
-    pub error_desciption: Option<String>,
+    error_type: ErrorType,
+    error_source: ErrorSource,
+    error_retry: RetryType,
+    error_cause: Option<Box<(dyn ErrorTrait + Send + Sync)>>,
+    error_description: Option<String>,
 }
 
 type BErr = Box<Error>;
@@ -62,7 +64,7 @@ impl Default for Error {
             error_source: ErrorSource::DownStream, 
             error_retry: false.into(), 
             error_cause: None, 
-            error_desciption: None 
+            error_description: None 
         }
     }
 }
@@ -71,10 +73,10 @@ impl ErrorTrait for Error {}
 
 impl Error {
     fn chain_display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "context: {}", self.error_desciption.as_ref().unwrap())?;
+        write!(f, "{:?}: context: {};", self.error_type,self.error_description.as_ref().unwrap_or(&"non description.".to_string()))?;
         if let Some(case_error) = self.error_cause.as_ref() {
-            write!(f, "\nError is caused by {:?}", case_error.downcast_ref::<Box<Error>>())?;
-            self.chain_display(f)
+            write!(f, " Error is transport To ->\n")?;
+            case_error.downcast_ref::<Error>().unwrap().chain_display(f)
         } else {
             Ok(())
         }
@@ -83,8 +85,8 @@ impl Error {
     ///generate error with cause.
     /// 
     ///[RetryType] not always worked, if error_cause cant retry, then [RetryType] is false.
-    fn generate_error_withcause(error_type: ErrorType, error_source: ErrorSource, 
-        error_retry: RetryType, error_cause: Option<Box<(dyn std::error::Error + Send + Sync + 'static)>>) -> Self {
+    fn generate_error(error_type: ErrorType, error_source: ErrorSource, 
+        error_retry: RetryType, error_cause: Option<Box<(dyn std::error::Error + Send + Sync + 'static)>>, error_description: Option<&str>,) -> Self {
         
         let retry = if let Some(cause) = error_cause.as_ref() {
             if let Some(upper_cause) = cause.downcast_ref::<Error>() {
@@ -100,8 +102,37 @@ impl Error {
             error_source,
             error_retry: retry,
             error_cause,
-            error_desciption: None,
+            error_description: error_description.as_deref().map(|strs| strs.to_string()),
         }
+    }
+
+    /// descripe error.
+    /// 
+    /// maybe i should make it in step create?
+    fn descripe_error(&mut self, description: &str) {
+        self.error_description.replace(description.to_string());
+    }
+
+    /// new an Error.
+    fn new(error_type: ErrorType) -> BErr {
+        Box::new(Error::generate_error(error_type, ErrorSource::DownStream, false.into(), None, None))
+    }
+
+    fn because(&mut self, cause: Box<(dyn ErrorTrait + Send + Sync)>) {
+        self.error_cause.replace(cause);
+    }
+
+    fn set_context(&mut self, description: String) {
+        self.error_description = Some(description);
+    }
+}
+
+impl ErrorType {
+    pub fn new_custom_with_code(error_type: &'static str, error_code: u16) -> Self {
+        Self::CustomCode(error_type, error_code)
+    }    
+    pub fn new_custom(error_type: &'static str) -> Self {
+        Self::Custom(error_type)
     }
 }
 

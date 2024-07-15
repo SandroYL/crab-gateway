@@ -3,6 +3,10 @@ name = "gateway-listen"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "gateway_listen"
+path = "src/lib.rs"
+
 [dependencies]
-actix-web = "4.8.0"
 socket2 = "0.5.7"
+tokio = { version = "1", features = ["net"] }

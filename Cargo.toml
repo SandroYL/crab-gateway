@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "gateway-basic",
-    "gateway-error", "gateway-listen",
+    "gateway-error", "gateway-listen", "gateway-protocols",
 ]
 
 [profile.bench]

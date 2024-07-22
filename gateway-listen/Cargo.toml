@@ -9,4 +9,4 @@ path = "src/lib.rs"
 
 [dependencies]
 socket2 = "0.5.7"
-tokio = { version = "1", features = ["net"] }
+tokio = { version = "1", features = ["net", "io-util"] }

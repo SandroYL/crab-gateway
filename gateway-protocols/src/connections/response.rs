@@ -45,8 +45,7 @@ impl<T> Response<T> {
             body,
         }
     }
-
-    //lose response forever
+    ///lose response forever
     pub fn divide_response(self) -> (ResponseHeader, T) {
         (self.head, self.body)
     }
@@ -56,6 +55,18 @@ impl<T> Response<T> {
             head: headers,
             body,
         }
+    }
+
+    pub fn get_status(&self) -> StatusCode {
+        self.head.status
+    }
+
+    pub fn get_version(&self) -> Version {
+        self.head.version
+    }
+
+    pub fn get_headers(&self) -> HeaderMap<HeaderValue> {
+        self.head.headers.clone()
     }
 }
 

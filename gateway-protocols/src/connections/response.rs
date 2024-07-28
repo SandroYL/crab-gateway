@@ -65,9 +65,14 @@ impl<T> Response<T> {
         self.head.version
     }
 
-    pub fn get_headers(&self) -> HeaderMap<HeaderValue> {
-        self.head.headers.clone()
+    pub fn get_headers(&self) -> &HeaderMap<HeaderValue> {
+        &self.head.headers
     }
+
+    pub fn get_headers_mut(&mut self) -> &mut HeaderMap<HeaderValue> {
+        &mut self.head.headers
+    }
+
 }
 
 impl ResponseHeaderBuilder {

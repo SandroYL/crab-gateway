@@ -21,7 +21,6 @@ pub struct ResponseHeaderBuilder {
 
 impl ResponseHeader {
     pub fn new() -> Self {
-        let mut p = HeaderMap::new();
         Self {
             status: StatusCode::default(),
             version: Version::default(),
@@ -65,8 +64,26 @@ impl<T> Response<T> {
         self.head.version
     }
 
-    pub fn get_headers(&self) -> HeaderMap<HeaderValue> {
-        self.head.headers.clone()
+    pub fn get_headers(&self) -> &HeaderMap<HeaderValue> {
+        &self.head.headers
+    }
+
+    pub fn get_headers_mut(&mut self) -> &mut HeaderMap<HeaderValue> {
+        &mut self.head.headers
+    }
+    
+    pub fn get_status_mut(&mut self) -> &mut StatusCode {
+        &mut self.head.status
+    }
+
+    pub fn map<F, U>(self, f: F) -> Response<U>
+    where
+        F: FnOnce(T) -> U  
+    {
+        Response {
+            body: f(self.body),
+            head: self.head
+        }
     }
 }
 

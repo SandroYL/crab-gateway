@@ -85,6 +85,7 @@ impl<T> Response<T> {
             head: self.head
         }
     }
+
 }
 
 impl ResponseHeaderBuilder {

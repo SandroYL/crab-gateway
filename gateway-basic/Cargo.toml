@@ -2,3 +2,10 @@
 name = "gateway-basic"
 version = "0.1.0"
 edition = "2021"
+
+[lib]
+name = "gateway_basic"
+path = "src/lib.rs"
+
+[dependencies]
+gateway-error = { version = "0.1.0", path = "../gateway-error" }

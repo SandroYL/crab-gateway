@@ -1,4 +1,4 @@
-use http::{Extensions, HeaderMap, HeaderValue, Result, StatusCode, Version};
+use http::{Extensions, HeaderMap, HeaderName, HeaderValue, Result, StatusCode, Version};
 
 
 
@@ -16,7 +16,7 @@ pub struct ResponseHeader {
 }
 
 pub struct ResponseHeaderBuilder {
-    inner: Result<ResponseHeader>
+    inner: ResponseHeader,
 }
 
 impl ResponseHeader {
@@ -92,12 +92,20 @@ impl ResponseHeaderBuilder {
     pub fn new() -> Self {
         ResponseHeaderBuilder::default()
     }
+
+    pub fn status(&mut self, status_code: StatusCode) {
+        self.inner.status = status_code;
+    }
+
+    pub fn version(&mut self, version: Version) {
+        self.inner.version = version;
+    }
 }
 
 impl Default for ResponseHeaderBuilder {
     fn default() -> Self {
         Self {
-            inner: Ok(ResponseHeader::new()),
+            inner: ResponseHeader::new(),
         }
     }
 }

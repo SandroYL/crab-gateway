@@ -137,3 +137,8 @@ impl ErrorType {
     }
 }
 
+impl Into<ErrorSource> for &str {
+    fn into(self) -> ErrorSource {
+        todo!()
+    }
+}

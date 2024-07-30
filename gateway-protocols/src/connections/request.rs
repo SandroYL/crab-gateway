@@ -28,13 +28,19 @@ impl Deref for RequestHeader {
 
 impl RequestHeader {
     fn new() -> Self {
-        let mut raw_parts = ReqBuilder::new().body(())
+        let raw_parts = ReqBuilder::new().body(()).unwrap().into_parts().0;
+        Self {
+            base: raw_parts,
+            header_name_map: Some(CaseSenseMap::new()),
+        }
     }
 
     pub fn build(
         method: impl TryInto<Method>,
         path: &[u8],
-    ) -> Result<Self> {
-
+    ) -> Self {
+        let mut raw_req = Self::new();
+        raw_req.base.method = method.try_into()
+            .expect_err()        
     }
 }

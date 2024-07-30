@@ -14,14 +14,14 @@ impl CaseSenseMap {
         }
     }
 
-    pub fn get(&self, input: String) -> Option<&Vec<String>> {
-        self.inner.get(&input.to_lowercase())
+    pub fn get(&self, input: String) -> Option<String> {
+        Self::format_value(self.inner.get(&input.to_lowercase()))
     }
 
-    pub fn insert(&mut self, key: String, value: String) -> Option<Vec<String>> {
+    pub fn insert(&mut self, key: String, value: String) -> Option<String> {
         let origin_value = self.inner.remove(&key);
         self.inner.insert(key, vec![value]);
-        origin_value
+        Self::format_value(origin_value.as_ref())
     }
 
     pub fn append(&mut self, key: String, value: String) {
@@ -42,15 +42,15 @@ impl CaseSenseMap {
     }
 
     pub fn iter_mut(&mut self) -> IterMut<String, Vec<String>> {
-        self.iter_mut()
+        self.inner.iter_mut()
     }
 
     #[inline]
-    fn format_value(value: Vec<String>) -> Option<String> {
-        return if value.is_empty() {
+    fn format_value(value: Option<&Vec<String>>) -> Option<String> {
+        return if value.is_none() {
             None
         } else {
-            Some(format!("[{}]", value.join(",")))
+            Some(format!("[{}]", value.unwrap().join(",")))
         };
     }
 }

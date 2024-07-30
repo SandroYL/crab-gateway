@@ -1,1 +1,1 @@
-mod case_sense_map;
+pub mod case_sense_map;

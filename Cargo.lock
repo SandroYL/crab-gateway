@@ -79,6 +79,8 @@ dependencies = [
 name = "gateway-protocols"
 version = "0.1.0"
 dependencies = [
+ "gateway-basic",
+ "gateway-error",
  "http",
 ]
 

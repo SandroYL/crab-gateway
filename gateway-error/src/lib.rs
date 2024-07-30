@@ -2,6 +2,7 @@ mod test_mod;
 
 use std::fmt::{self};
 use std::error::Error as ErrorTrait;
+use std::result::Result as StdResult;
 
 #[derive(Debug)]
 pub struct Error {
@@ -13,7 +14,7 @@ pub struct Error {
 }
 
 type BErr = Box<Error>;
-
+pub type Result<T, E = BErr> = StdResult<T, E>;
 #[derive(Debug)]
 pub enum ErrorType {
     /*----------Connect Problem------------*/

@@ -5,3 +5,5 @@ edition = "2021"
 
 [dependencies]
 http = "1.1.0"
+gateway-basic = { version = "0.1.0", path = "../gateway-basic" }
+gateway-error = { version = "0.1.0", path = "../gateway-error" }

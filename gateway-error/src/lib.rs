@@ -1,4 +1,5 @@
 mod test_mod;
+mod error_trait;
 
 use std::fmt::{self};
 use std::error::Error as ErrorTrait;
@@ -137,8 +138,3 @@ impl ErrorType {
     }
 }
 
-impl Into<ErrorSource> for &str {
-    fn into(self) -> ErrorSource {
-        todo!()
-    }
-}

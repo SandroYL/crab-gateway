@@ -5,6 +5,8 @@ use std::fmt::{self};
 use std::error::Error as ErrorTrait;
 use std::result::Result as StdResult;
 
+use error_trait::ErrTrans;
+
 #[derive(Debug)]
 pub struct Error {
     error_type: ErrorType,
@@ -126,6 +128,16 @@ impl Error {
 
     fn set_context(&mut self, description: String) {
         self.error_description = Some(description);
+    }
+}
+
+impl<T> ErrTrans<T> for Result<T, BErr> {
+    fn explain_error<F: FnOnce(ErrorType) -> BErr>(&mut self, f: F) -> Result<T, BErr> {
+        
+    }
+
+    fn add_context<F: FnOnce(&str)> (&mut self, f: F) -> Result<T, BErr> {
+        todo!()
     }
 }
 

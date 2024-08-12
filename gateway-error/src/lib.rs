@@ -27,6 +27,7 @@ pub enum ErrorType {
     BindError,
     SocketError,
     HttpCode(u16),
+    InvalidHttpHeader,
     /*----------DIY Problem------------*/
     Custom(&'static str),
     CustomCode(&'static str, u16),
@@ -122,6 +123,12 @@ impl Error {
         Box::new(Error::generate_error(error_type, ErrorSource::DownStream, false.into(), None, None))
     }
 
+    fn new_with_reason(error_type: ErrorType, error_cause: &str) -> BErr {
+        let mut nself =  Self::new(error_type);
+        nself.set_context(error_cause.to_string());
+        nself
+    }
+
     fn because(&mut self, cause: Box<(dyn ErrorTrait + Send + Sync)>) {
         self.error_cause.replace(cause);
     }
@@ -129,16 +136,25 @@ impl Error {
     fn set_context(&mut self, description: String) {
         self.error_description = Some(description);
     }
+
+    fn change_error_type(mut self, etype: ErrorType) -> BErr {
+        self.error_type = etype;
+        Box::new(self)
+    }
+
 }
 
-impl<T> ErrTrans<T> for Result<T, BErr> {
-    fn explain_error<F: FnOnce(ErrorType) -> BErr>(&mut self, f: F) -> Result<T, BErr> {
-        
+impl<T, E> ErrTrans<T, E> for Result<T, E> {
+    
+    fn explain_error(self, et: ErrorType) -> Result<T, BErr> {
+        self.map_err(|_| Error::new(et))
+    }
+    
+    fn expect_err(self, et: ErrorType, s: &str) -> Result<T, BErr> {
+        self.map_err(|_| Error::new_with_reason(et, s))
     }
 
-    fn add_context<F: FnOnce(&str)> (&mut self, f: F) -> Result<T, BErr> {
-        todo!()
-    }
+    
 }
 
 impl ErrorType {

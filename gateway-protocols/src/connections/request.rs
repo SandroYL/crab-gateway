@@ -1,9 +1,10 @@
-use std::ops::Deref;
+use std::{env::VarError, ops::Deref};
 
 use gateway_basic::util::case_sense_map::CaseSenseMap;
 use http::{request::Parts, Method};
-use gateway_error::Result as Result;
+use gateway_error::ErrorType;
 use http::request::Builder as ReqBuilder;
+use gateway_error::Result;
 
 type ReqParts = Parts;
 type HeadersMap = CaseSenseMap;
@@ -41,6 +42,10 @@ impl RequestHeader {
     ) -> Self {
         let mut raw_req = Self::new();
         raw_req.base.method = method.try_into()
-            .expect_err()        
+            .expect_err(ErrorType::InvalidHttpHeader, "invalid method")?;
+
+        let p = Err(VarError::NotPresent);
+        p.expect_err("shit");
+            
     }
 }

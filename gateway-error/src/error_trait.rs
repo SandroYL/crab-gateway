@@ -1,10 +1,10 @@
-use std::error::Error;
 
 use crate::{BErr, ErrorType};
 
 
-pub trait ErrTrans<T> {
-    fn explain_error<F: FnOnce(ErrorType) -> BErr>(&mut self, f: F) -> Result<T, BErr>;
+pub trait ErrTrans<T, E> {
+    fn explain_error(self, et: ErrorType) -> Result<T, BErr>;
 
-    fn add_context<F: FnOnce(&str)> (&mut self, f: F) -> Result<T, BErr>;
+
+    fn expect_err(self, et: ErrorType, s: &str) -> Result<T, BErr>;
 }

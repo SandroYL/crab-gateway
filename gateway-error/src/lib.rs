@@ -5,7 +5,7 @@ use std::fmt::{self};
 use std::error::Error as ErrorTrait;
 use std::result::Result as StdResult;
 
-use error_trait::ErrTrans;
+pub use error_trait::ErrTrans;
 
 #[derive(Debug)]
 pub struct Error {
@@ -150,7 +150,7 @@ impl<T, E> ErrTrans<T, E> for Result<T, E> {
         self.map_err(|_| Error::new(et))
     }
     
-    fn expect_err(self, et: ErrorType, s: &str) -> Result<T, BErr> {
+    fn to_b_err(self, et: ErrorType, s: &str) -> Result<T, BErr> {
         self.map_err(|_| Error::new_with_reason(et, s))
     }
 

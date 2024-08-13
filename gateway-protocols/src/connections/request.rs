@@ -1,9 +1,11 @@
 use std::{env::VarError, ops::Deref};
 
 use gateway_basic::util::case_sense_map::CaseSenseMap;
+use http::Uri;
 use http::{request::Parts, Method};
 use gateway_error::ErrorType;
 use http::request::Builder as ReqBuilder;
+use gateway_error::ErrTrans;
 use gateway_error::Result;
 
 type ReqParts = Parts;
@@ -36,16 +38,19 @@ impl RequestHeader {
         }
     }
 
-    pub fn build(
+    pub fn build_with_method_path(
         method: impl TryInto<Method>,
         path: &[u8],
-    ) -> Self {
+    ) -> Result<Self> {
         let mut raw_req = Self::new();
         raw_req.base.method = method.try_into()
-            .expect_err(ErrorType::InvalidHttpHeader, "invalid method")?;
-
-        let p = Err(VarError::NotPresent);
-        p.expect_err("shit");
-            
+            .to_b_err(ErrorType::InvalidHttpHeader, "invalid method")?;
+        if let Ok(p) = std::str::from_utf8(path) {
+            let uri = Uri::builder()
+                .path_and_query(path)
+                .build()
+                .to_b_err(ErrorType::InvalidHttpHeader, "invalid path")?;
+        }
+        return Ok(raw_req)
     }
 }

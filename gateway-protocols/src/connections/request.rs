@@ -1,6 +1,7 @@
-use std::{env::VarError, ops::Deref};
+use std::ops::Deref;
 
 use gateway_basic::util::case_sense_map::CaseSenseMap;
+use gateway_basic::util::small_case_string::SmallCaseString;
 use http::Uri;
 use http::{request::Parts, Method};
 use gateway_error::ErrorType;
@@ -51,6 +52,16 @@ impl RequestHeader {
                 .build()
                 .to_b_err(ErrorType::InvalidHttpHeader, "invalid path")?;
         }
-        return Ok(raw_req)
+        Ok(raw_req)
     }
+
+    pub fn append_header(
+        &mut self,
+        name: impl SmallCaseString,
+        value: impl SmallCaseString
+    ) {
+
+    }
+
+
 }

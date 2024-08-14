@@ -1,10 +1,10 @@
 use std::collections::{
     hash_map::{Entry, Iter, IterMut},
-    HashMap,
+    HashMap, HashSet,
 };
 
 pub struct CaseSenseMap {
-    inner: HashMap<String, Vec<String>>,
+    inner: HashMap<String, HashSet<String>>,
 }
 
 impl CaseSenseMap {
@@ -14,44 +14,67 @@ impl CaseSenseMap {
         }
     }
 
-    pub fn get(&self, input: String) -> Option<String> {
+    pub fn get(&self, input: &str) -> Option<String> {
         Self::format_value(self.inner.get(&input.to_lowercase()))
     }
 
-    pub fn insert(&mut self, key: String, value: String) -> Option<String> {
-        let origin_value = self.inner.remove(&key);
-        self.inner.insert(key, vec![value]);
-        Self::format_value(origin_value.as_ref())
+    pub fn insert(&mut self, mut key: String, value: String) -> Option<String> {
+        key = key.to_lowercase();
+        let mut init_set = HashSet::new();
+        let old_set = self.get(&key);
+        init_set.insert(value);
+        self.inner.insert(key, init_set.clone());
+        old_set
     }
 
     pub fn append(&mut self, key: String, value: String) {
-        let origin_values = self.entry(key).or_insert(Vec::new());
-        (*origin_values).push(value);
+        let origin_values = self.entry(key).or_insert(HashSet::new());
+        (*origin_values).insert(value);
     }
 
-    pub fn entry(&mut self, key: String) -> Entry<String, Vec<String>> {
+    pub fn entry(&mut self, key: String) -> Entry<String, HashSet<String>> {
         self.inner.entry(key.to_lowercase())
     }
 
-    pub fn remove(&mut self, key: String) -> Option<Vec<String>> {
+    pub fn remove(&mut self, key: String) -> Option<HashSet<String>> {
         self.inner.remove(&key.to_lowercase())
     }
 
-    pub fn iter(&self) -> Iter<String, Vec<String>> {
+    pub fn remove_value(&mut self, value: String) {
+        let lc_v = value.to_lowercase();
+        let v = self.inner.entry(lc_v.clone()).or_default();
+        v.remove(&value);
+        if v.len() == 0 {
+            self.inner.remove(&lc_v);
+        }
+    }
+
+    pub fn iter(&self) -> Iter<String, HashSet<String>> {
         self.inner.iter()
     }
 
-    pub fn iter_mut(&mut self) -> IterMut<String, Vec<String>> {
+    pub fn iter_mut(&mut self) -> IterMut<String, HashSet<String>> {
         self.inner.iter_mut()
     }
 
     #[inline]
-    fn format_value(value: Option<&Vec<String>>) -> Option<String> {
-        return if value.is_none() {
-            None
+    fn format_value(value: Option<&HashSet<String>>) -> Option<String> {
+        if let Some(vset) = value {
+            let capacity = vset.iter().map(|s| s.len())
+                .sum::<usize>() + vset.len() + 1;
+            let mut print_str = String::with_capacity(capacity);
+            print_str.push_str("[");
+            for (i, s) in vset.iter().enumerate() {
+                if i > 0 {
+                    print_str.push_str(",");
+                }
+                print_str.push_str(s);
+            }
+            print_str.push_str("]");
+            Some(print_str)
         } else {
-            Some(format!("[{}]", value.unwrap().join(",")))
-        };
+            None
+        }
     }
 }
 

@@ -18,6 +18,10 @@ impl CaseSenseMap {
         Self::format_value(self.inner.get(&input.to_lowercase()))
     }
 
+    pub fn contains(&self, input: &str) -> bool {
+        self.inner.contains_key(&input.to_lowercase())
+    }
+
     pub fn insert(&mut self, mut key: String, value: String) -> Option<String> {
         key = key.to_lowercase();
         let mut init_set = HashSet::new();
@@ -40,12 +44,12 @@ impl CaseSenseMap {
         self.inner.remove(&key.to_lowercase())
     }
 
-    pub fn remove_value(&mut self, value: String) {
-        let lc_v = value.to_lowercase();
-        let v = self.inner.entry(lc_v.clone()).or_default();
+
+    pub fn remove_value(&mut self, key: String, value: String) {
+        let v = self.inner.entry(key.to_lowercase()).or_default();
         v.remove(&value);
         if v.len() == 0 {
-            self.inner.remove(&lc_v);
+            self.inner.remove(&key);
         }
     }
 

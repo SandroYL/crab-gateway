@@ -18,7 +18,7 @@ pub struct RequestHeader {
 
 pub enum Opt {
     INSERT,
-    DELETE,
+    REMOVE,
     APPEND,
     MODIFY
 }
@@ -70,29 +70,72 @@ impl RequestHeader {
         let haeder_value = value
             .try_into()
             .to_b_err(ErrorType::InvalidHttpHeader, "invalid http head value")?;
-        Self::append_header_value(
+        Self::operate_header_value(
             &mut self.base.headers,
             &mut self.header_name_map,
-            name,
-            haeder_value
+            vec![name],
+            vec![haeder_value],
+            Opt::APPEND
         )
     }
+
+    pub fn remove_header(
+        &mut self,
+        name: impl SmallCaseString,
+        value: impl TryInto<HeaderValue>
+    ) -> Result<()> {
+        let haeder_value = value
+            .try_into()
+            .to_b_err(ErrorType::InvalidHttpHeader, "invalid http head value")?;
+        Self::operate_header_value(
+            &mut self.base.headers,
+            &mut self.header_name_map,
+            vec![name],
+            vec![haeder_value],
+            Opt::REMOVE
+        )
+    }
+
+    pub fn insert_header(
+        &mut self,
+        name: impl SmallCaseString,
+        value: impl TryInto<HeaderValue>
+    ) -> Result<()> {
+        let haeder_value = value
+            .try_into()
+            .to_b_err(ErrorType::InvalidHttpHeader, "invalid http head value")?;
+        Self::operate_header_value(
+            &mut self.base.headers,
+            &mut self.header_name_map,
+            vec![name],
+            vec![haeder_value],
+            Opt::INSERT
+        )
+    }
+
+    pub fn modify_header(
+        &mut self,
+        name_new: impl SmallCaseString,
+        name_old: impl SmallCaseString,
+        value_new: impl TryInto<HeaderValue>,
+        value_old: impl TryInto<HeaderValue>
+    )
 
     fn operate_header_value(
         value_map: &mut HeaderMap<HeaderValue>,
         header_name_map: &mut Option<HeadersMap>,
-        key: &[impl SmallCaseString],   //-0 add -1 modify
-        value: &[HeaderValue],
+        key: Vec<impl SmallCaseString>,   //-0 add -1 modify
+        mut value: Vec<HeaderValue>,
         opt: Opt
     ) -> Result<()> {
-        let case_header_key = key.iter().map(|x| x.into_small_case_header()).collect::<Vec<SmallCaseHeader>>();
-        let header_key: Vec<HeaderName> = case_header_key
+        let case_header_key = key.into_iter().map(|x| x.into_small_case_header()).collect::<Vec<SmallCaseHeader>>();
+        let mut header_key: Vec<HeaderName> = case_header_key
             .iter()
             .map(|small_case_header| 
                 small_case_header
                     .as_slice()
                     .try_into()
-                    .to_b_err(ErrorType::InvalidHttpHeader, "invalid header name")?
+                    .to_b_err(ErrorType::InvalidHttpHeader, "invalid header name").unwrap()
             )
             .collect::<Vec<HeaderName>>();
         match opt {
@@ -100,29 +143,30 @@ impl RequestHeader {
                 if let Some(ok_header_name_map) = header_name_map {
                     ok_header_name_map.insert(header_key[0].to_string(), case_header_key[0].to_string());
                 }
-                value_map.insert(header_key[0], value[0]);
+                value_map.insert(header_key.pop().unwrap(), value.pop().unwrap());
             },
             Opt::APPEND => {
                 if let Some(ok_header_name_map) = header_name_map {
                     ok_header_name_map.append(header_key[0].to_string(), case_header_key[0].to_string());
                 }
-                value_map.append(header_key[0], value[0]);
+                value_map.append(header_key.pop().unwrap(), value.pop().unwrap());
             },
-            Opt::DELETE => {
+            Opt::REMOVE => {
                 if let Some(ok_header_name_map) = header_name_map {
                     ok_header_name_map.remove_value(header_key[0].to_string(), case_header_key[0].to_string());
                 }
+                value_map.remove(header_key.pop().unwrap());
             },
             Opt::MODIFY => {
                 if let Some(ok_header_name_map) = header_name_map {
                     ok_header_name_map.append(header_key[0].to_string(), case_header_key[0].to_string());
                     ok_header_name_map.remove_value(header_key[1].to_string(), case_header_key[1].to_string());
                 }
+                header_key.pop();
+                value.pop();
+                value_map.insert(header_key.pop().unwrap(), value.pop().unwrap());
             }
         };
-
-
-
         Ok(())
     }
 

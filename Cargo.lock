@@ -34,9 +34,9 @@ dependencies = [
 
 [[package]]
 name = "bytes"
-version = "1.6.0"
+version = "1.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "514de17de45fdb8dc022b1a7975556c53c86f9f0aa5f534b98977b171857c2c9"
+checksum = "8318a53db07bb3f8dca91a600466bdb3f2eaadeedfdbcf02e1accbad9271ba50"
 
 [[package]]
 name = "cc"
@@ -61,6 +61,7 @@ name = "gateway-basic"
 version = "0.1.0"
 dependencies = [
  "gateway-error",
+ "http",
 ]
 
 [[package]]
@@ -79,6 +80,7 @@ dependencies = [
 name = "gateway-protocols"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "gateway-basic",
  "gateway-error",
  "http",

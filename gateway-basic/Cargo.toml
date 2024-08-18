@@ -9,3 +9,4 @@ path = "src/lib.rs"
 
 [dependencies]
 gateway-error = { version = "0.1.0", path = "../gateway-error" }
+http = "1.1.0"

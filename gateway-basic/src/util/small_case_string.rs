@@ -1,4 +1,3 @@
-use std::clone;
 
 pub struct SmallCaseHeader(String);
 
@@ -14,9 +13,40 @@ impl SmallCaseString for SmallCaseHeader {
     }
     
     fn to_string(&self) -> String {
-        self.0.to_string()
+        self.0.clone()
     }
 }
+
+impl SmallCaseString for &str {
+    fn into_small_case_header(self) -> SmallCaseHeader {
+        self.into()
+    }
+
+    fn to_string(&self) -> String {
+        String::from(*self)
+    }
+}
+
+impl SmallCaseString for String {
+    fn into_small_case_header(self) -> SmallCaseHeader {
+        self.into()
+    }
+
+    fn to_string(&self) -> String {
+        self.clone()
+    }
+}
+
+impl SmallCaseString for http::header::HeaderName {
+    fn into_small_case_header(self) -> SmallCaseHeader {
+        SmallCaseString::to_string(&self).into_small_case_header()
+    }
+
+    fn to_string(&self) -> String {
+        ToString::to_string(&self)
+    }
+}
+
 
 impl Into<SmallCaseHeader> for String {
     fn into(self) -> SmallCaseHeader {
@@ -30,7 +60,7 @@ impl SmallCaseHeader {
     }
 
     pub fn to_string(&self) -> String {
-        self.0.to_string()
+        self.0.clone()
     }
 }
 

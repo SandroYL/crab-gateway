@@ -3,7 +3,7 @@ use std::ops::Deref;
 use bytes::BufMut;
 use gateway_basic::util::small_case_string::SmallCaseString;
 use gateway_error::{ErrTrans, ErrorType};
-use http::StatusCode;
+use http::{response, StatusCode};
 use http::{response::Parts, HeaderMap, HeaderName, HeaderValue, Version};
 use http::response::Builder as ReqBuilder;
 use gateway_error::Result;
@@ -50,7 +50,7 @@ impl ResponseHeader {
         }
     }
 
-    pub fn build_with_method_path(
+    pub fn build_with_status_code (
         status_code: impl TryInto<StatusCode>,
     ) -> Result<Self> {
         let mut raw_resp = Self::new();
@@ -157,14 +157,27 @@ impl ResponseHeader {
         self.base.version = version;
     }
 
-    pub fn raw_path(&self) -> &[u8] {
-        self.base
-            .uri
-            .path_and_query()
-            .as_ref()
-            .unwrap()
-            .as_str()
-            .as_bytes()
+    pub fn set_status(&mut self, status: impl TryInto<StatusCode>)
+    -> Result<()> {
+        self.base.status = status
+            .try_into()
+            .to_b_err(ErrorType::InvalidHttpHeader, "invalid status")?;
+        Ok(())
+    }
+
+    pub fn set_reason_phrase(&mut self, reason_phrase: Option<&str>) -> Result<()> {
+        if reason_phrase == self.base.status.canonical_reason() {
+            self.reason_phrase = None;
+            return Ok(());
+        }
+        self.reason_phrase = reason_phrase.map(str::to_string);
+        Ok(())
+    }
+
+    pub fn get_reason_phrase(&self) -> Option<&str> {
+        self.reason_phrase
+            .as_deref()
+            .or_else(|| self.base.status.canonical_reason())
     }
 
     pub fn header_to_h1_wire(&self, buf: &mut impl BufMut) {

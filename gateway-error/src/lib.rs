@@ -28,6 +28,8 @@ pub enum ErrorType {
     SocketError,
     HttpCode(u16),
     InvalidHttpHeader,
+    /*----------Response Problem------------*/
+    ConnectProxyError,
     /*----------DIY Problem------------*/
     Custom(&'static str),
     CustomCode(&'static str, u16),
@@ -119,11 +121,11 @@ impl Error {
     }
 
     /// new an Error.
-    fn new(error_type: ErrorType) -> BErr {
+    pub fn new(error_type: ErrorType) -> BErr {
         Box::new(Error::generate_error(error_type, ErrorSource::DownStream, false.into(), None, None))
     }
 
-    fn new_with_reason(error_type: ErrorType, error_cause: &str) -> BErr {
+    pub fn new_with_reason(error_type: ErrorType, error_cause: &str) -> BErr {
         let mut nself =  Self::new(error_type);
         nself.set_context(error_cause.to_string());
         nself

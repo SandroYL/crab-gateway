@@ -5,13 +5,6 @@ mod row_connection;
 pub mod response;
 pub mod request;
 
-pub struct ResponseHeader {
-
-}
-
-pub struct ResponseBaseInfo {
-}
-
 pub enum Opt {
     INSERT,
     REMOVE,

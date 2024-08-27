@@ -11,6 +11,8 @@ use super::{header_to_h1_wire, Opt};
 
 
 type ReqParts = Parts;
+
+#[derive(Debug)]
 pub struct ResponseHeader {
     base: ReqParts,
     reason_phrase: Option<String>,

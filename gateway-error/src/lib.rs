@@ -131,6 +131,17 @@ impl Error {
         nself
     }
 
+    pub fn generate_error_with_root<T, 
+        E: Into<Box<(dyn ErrorTrait + Send + Sync)>>> (
+        error_type: ErrorType, 
+        error_description: &str,
+        error_cause: E
+    ) -> Result<T> {
+        let mut be = Self::new_with_reason(error_type, error_description);
+        be.because(error_cause.into());
+        Err(be)
+    }
+
     fn because(&mut self, cause: Box<(dyn ErrorTrait + Send + Sync)>) {
         self.error_cause.replace(cause);
     }

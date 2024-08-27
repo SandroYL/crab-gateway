@@ -1,5 +1,5 @@
 use bytes::{BufMut, BytesMut};
-use gateway_error::{Error as Error, Result};
+use gateway_error::{Error as Error, ErrorType, Result};
 use http::Version;
 
 use crate::{connections::response::ResponseHeader, http::common::*};
@@ -16,6 +16,7 @@ impl ProxyDigest {
     }
 }
 
+#[derive(Debug)]
 pub struct ConnectProxyError {
     pub response: Box<ResponseHeader>,
 }
@@ -25,6 +26,8 @@ impl ConnectProxyError {
         Box::new(ConnectProxyError { response })
     }
 }
+
+impl std::error::Error for ConnectProxyError {}
 
 impl std::fmt::Display for ConnectProxyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -78,7 +81,8 @@ fn http_req_header_to_wire_auth_form(req: &RequestHeader) -> BytesMut {
 #[inline]
 fn validate_connect_response(resp: Box<ResponseHeader>) -> Result<ProxyDigest> {
     if !resp.status.is_success() {
-        return Error::new_with_reason(ConnectProxyError, "None 2xx code");
+        return Error::generate_error_with_root(ErrorType::ConnectProxyError, "None 2xx code",
+    ConnectProxyError::boxed_new(resp));
     }
-    Ok(())
+    Ok(ProxyDigest::new(resp))
 }

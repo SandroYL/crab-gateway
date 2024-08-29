@@ -86,3 +86,33 @@ fn validate_connect_response(resp: Box<ResponseHeader>) -> Result<ProxyDigest> {
     }
     Ok(ProxyDigest::new(resp))
 }
+
+pub fn generate_connect_header<H, S, 'a> (
+    host: &str,
+    port: u16,
+    headers: H,
+) -> Result<Box<RequestHeader>>
+where
+    S: AsRef<[u8]>,
+    H: Iterator<Item = (S, &'a Vec<u8>)>
+{
+    let authority = if host.parse::<std::net::Ipv6Addr>().is_ok() {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    };
+
+    let req = 
+        http::request::Builder::new()
+            .version(http::Version::HTTP_11)
+            .method(http::method::Method::CONNECT)
+            .uri(format!("http://{authority}/"))
+            .header(http::header::HOST, &authority);
+
+    let (mut req, _) = match req.body(()) {
+        Ok(r) => r.into_parts(),
+        Err(e) => {
+            return Err(e).
+        }
+    }
+}

@@ -6,6 +6,7 @@ use std::error::Error as ErrorTrait;
 use std::result::Result as StdResult;
 
 pub use error_trait::ErrTrans;
+use error_trait::OrErr;
 
 #[derive(Debug)]
 pub struct Error {
@@ -142,6 +143,17 @@ impl Error {
         Err(be)
     }
 
+    pub fn generate_error_with_root_raw<
+        E: Into<Box<(dyn ErrorTrait + Send + Sync)>>> (
+        error_type: ErrorType, 
+        error_description: &str,
+        error_cause: E
+    ) -> BErr {
+        let mut be = Self::new_with_reason(error_type, error_description);
+        be.because(error_cause.into());
+        be
+    }
+
     fn because(&mut self, cause: Box<(dyn ErrorTrait + Send + Sync)>) {
         self.error_cause.replace(cause);
     }
@@ -179,3 +191,17 @@ impl ErrorType {
     }
 }
 
+impl<T, E> OrErr<T, E> for StdResult<T, E> {
+    fn or_err(self, et: ErrorType,
+        context: &'static str) -> Result<T, BErr>
+    where 
+        E: Into<Box<dyn ErrorTrait + Send + Sync>> {
+        self.map_err(|e| Error::generate_error_with_root_raw(et, &context, e))
+    }
+
+    fn or_fail(self) -> StdResult<T, BErr>
+    where
+        E: Into<Box<dyn ErrorTrait + Send + Sync>> {
+        todo!()
+    }
+}

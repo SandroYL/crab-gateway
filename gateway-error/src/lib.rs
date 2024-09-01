@@ -1,5 +1,5 @@
 mod test_mod;
-mod error_trait;
+pub mod error_trait;
 
 use std::fmt::{self};
 use std::error::Error as ErrorTrait;
@@ -24,6 +24,7 @@ pub enum ErrorType {
     /*----------Connect Problem------------*/
     ConnectTimeout,
     ConnectRefused,
+    InternalError,
     /*----------Connect Problem------------*/
     BindError,
     SocketError,
@@ -122,11 +123,11 @@ impl Error {
     }
 
     /// new an Error.
-    pub fn new(error_type: ErrorType) -> BErr {
+    fn new(error_type: ErrorType) -> BErr {
         Box::new(Error::generate_error(error_type, ErrorSource::DownStream, false.into(), None, None))
     }
 
-    pub fn new_with_reason(error_type: ErrorType, error_cause: &str) -> BErr {
+    fn new_with_reason(error_type: ErrorType, error_cause: &str) -> BErr {
         let mut nself =  Self::new(error_type);
         nself.set_context(error_cause.to_string());
         nself
@@ -202,6 +203,6 @@ impl<T, E> OrErr<T, E> for StdResult<T, E> {
     fn or_fail(self) -> StdResult<T, BErr>
     where
         E: Into<Box<dyn ErrorTrait + Send + Sync>> {
-        todo!()
+        self.map_err(|e| Error::generate_error_with_root_raw(ErrorType::InternalError, "", e))
     }
 }

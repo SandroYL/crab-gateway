@@ -1,7 +1,7 @@
 use bytes::{BufMut, BytesMut};
 use gateway_error::{Error as Error, ErrorType, Result};
 use http::Version;
-
+use gateway_error::error_trait::OrErr;
 use crate::{connections::response::ResponseHeader, http::common::*};
 
 use super::request::RequestHeader;
@@ -112,7 +112,9 @@ where
     let (mut req, _) = match req.body(()) {
         Ok(r) => r.into_parts(),
         Err(e) => {
-            return Err(e).
+            return Err(e).or_err(ErrorType::InvalidHttpHeader, "Invalid CONNECT request");
         }
-    }
+    };
+    
+
 }

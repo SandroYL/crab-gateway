@@ -1,8 +1,11 @@
+
 use bytes::{BufMut, BytesMut};
 use gateway_error::{Error as Error, ErrorType, Result};
-use http::Version;
+use http::{HeaderName, HeaderValue, Version};
 use gateway_error::error_trait::OrErr;
 use crate::{connections::response::ResponseHeader, http::common::*};
+
+use http::request::Parts as ReqHeader;
 
 use super::request::RequestHeader;
 
@@ -87,11 +90,11 @@ fn validate_connect_response(resp: Box<ResponseHeader>) -> Result<ProxyDigest> {
     Ok(ProxyDigest::new(resp))
 }
 
-pub fn generate_connect_header<H, S, 'a> (
+pub fn generate_connect_header<'a, H, S> (
     host: &str,
     port: u16,
     headers: H,
-) -> Result<Box<RequestHeader>>
+) -> Result<Box<ReqHeader>>
 where
     S: AsRef<[u8]>,
     H: Iterator<Item = (S, &'a Vec<u8>)>
@@ -116,5 +119,12 @@ where
         }
     };
     
-
+    for (k, v) in headers {
+        let header_name = HeaderName::from_bytes(k.as_ref())
+            .or_err(ErrorType::InvalidHttpHeader, "Invalid connect request")?;
+        let header_value = HeaderValue::from_bytes(v.as_slice())
+            .or_err(ErrorType::InvalidHttpHeader, "Invalid connect request")?;
+        req.headers.insert(header_name, header_value);
+    }
+    Ok(Box::new(req))
 }

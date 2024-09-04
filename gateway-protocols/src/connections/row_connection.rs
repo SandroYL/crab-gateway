@@ -1,9 +1,9 @@
 
-use bytes::{BufMut, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use gateway_error::{Error as Error, ErrorType, Result};
 use http::{HeaderName, HeaderValue, Version};
 use gateway_error::error_trait::OrErr;
-use crate::{connections::response::ResponseHeader, http::common::*};
+use crate::{connections::response::ResponseHeader, http::common::*, util_code::util_code::get_version_str};
 
 use http::request::Parts as ReqHeader;
 
@@ -47,38 +47,6 @@ impl std::fmt::Display for ConnectProxyError {
             &self.response.status
         )
     }
-}
-
-#[inline]
-fn http_req_header_to_wire_auth_form(req: &RequestHeader) -> BytesMut {
-    let mut buf = BytesMut::with_capacity(512);
-    let method = req.method.as_str().as_bytes();
-    buf.put_slice(method);
-    buf.put_u8(b' ');
-    if let Some(path) = req.uri.authority() {
-        buf.put_slice(path.as_str().as_bytes());
-    }
-    buf.put_u8(b' ');
-
-    let version = match req.version {
-        Version::HTTP_09 => "HTTP/0.9",
-        Version::HTTP_10 => "HTTP/1.0",
-        Version::HTTP_11 => "HTTP/1.1",
-        Version::HTTP_2 => "HTTP/2.0",
-        _ => "HTTP/0.9",
-    };
-    buf.put_slice(version.as_bytes());
-    buf.put_slice(CRLF);
-
-    let headers = &req.headers;
-    for (key, value) in headers.iter() {
-        buf.put_slice(key.as_ref());
-        buf.put_slice(HEADER_KV_DELIMITER);
-        buf.put_slice(value.as_ref());
-        buf.put_slice(CRLF);
-    }
-    buf.put_slice(CRLF);
-    buf
 }
 
 #[inline]
@@ -127,4 +95,29 @@ where
         req.headers.insert(header_name, header_value);
     }
     Ok(Box::new(req))
+}
+
+#[inline]
+fn from_request_head_to_bytes (req: &RequestHeader) -> BytesMut {
+    let mut buf = BytesMut::with_capacity(512);
+    let method = req.method.as_str().as_bytes();
+    buf.put_slice(method);
+    buf.put_u8(b' ');
+    if let Some(path) = req.uri.authority() {
+        buf.put_slice(path.as_str().as_bytes());
+    }
+    buf.put_u8(b' ');
+
+    buf.put_slice(get_version_str(&req.version).as_bytes());
+    buf.put_slice(CRLF);
+
+    let headers = &req.headers;
+    for (key, value) in headers.iter() {
+        buf.put_slice(key.as_ref());
+        buf.put_slice(HEADER_KV_DELIMITER);
+        buf.put_slice(value.as_ref());
+        buf.put_slice(CRLF);
+    }
+    buf.put_slice(CRLF);
+    buf
 }

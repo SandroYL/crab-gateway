@@ -58,6 +58,7 @@ fn validate_connect_response(resp: Box<ResponseHeader>) -> Result<ProxyDigest> {
     Ok(ProxyDigest::new(resp))
 }
 
+//Forward Proxy
 pub fn generate_connect_header<'a, H, S> (
     host: &str,
     port: u16,

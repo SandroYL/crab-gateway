@@ -1,7 +1,7 @@
 use bytes::BufMut;
 use http::HeaderMap;
 
-mod row_connection;
+pub mod row_connection;
 pub mod response;
 pub mod request;
 

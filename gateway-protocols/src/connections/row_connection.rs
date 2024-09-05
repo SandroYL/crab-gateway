@@ -72,7 +72,7 @@ fn validate_connect_response(resp: Box<ResponseHeader>) -> Result<ProxyDigest> {
 /// HOST: [<IPv6-address>]:<target-port>
 /// Headers....
 /// ```
-fn generate_connect_header<'a, H, S> (
+pub fn generate_connect_header<'a, H, S> (
     host: &str,
     port: u16,
     headers: H,
@@ -109,6 +109,10 @@ where
         req.headers.insert(header_name, header_value);
     }
     Ok(Box::new(req))
+}
+
+pub async fn connect(stream: Stream, request_header: &ReqHeader) -> Result<Stream, ProxyDigest> {
+    let mut http = HttpSession::
 }
 
 #[inline]

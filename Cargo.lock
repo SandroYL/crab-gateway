@@ -84,6 +84,7 @@ dependencies = [
  "gateway-basic",
  "gateway-error",
  "http",
+ "tokio",
 ]
 
 [[package]]

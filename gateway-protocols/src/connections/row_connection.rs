@@ -58,7 +58,20 @@ fn validate_connect_response(resp: Box<ResponseHeader>) -> Result<ProxyDigest> {
     Ok(ProxyDigest::new(resp))
 }
 
-//Forward Proxy
+///  generate http CONNECT request 
+/// IPV4 sturct ↓
+/// ```ruby
+/// CONNECT <target-host>:<target-port> HTTP/1.1
+/// HOST: <target-host>:<target-port>
+/// Headers..
+/// ```
+/// 
+/// IPV6 struct ↓
+/// ```ruby
+/// CONNECT [<IPv6-address>]:<target-port> HTTP/1.1
+/// HOST: [<IPv6-address>]:<target-port>
+/// Headers....
+/// ```
 pub fn generate_connect_header<'a, H, S> (
     host: &str,
     port: u16,

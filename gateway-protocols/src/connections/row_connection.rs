@@ -1,13 +1,12 @@
 
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{BufMut, BytesMut};
 use gateway_error::{Error as Error, ErrorType, Result};
-use http::{HeaderName, HeaderValue, Version};
+use http::{HeaderName, HeaderValue};
 use gateway_error::error_trait::OrErr;
 use crate::{connections::response::ResponseHeader, http::common::*, util_code::util_code::get_version_str};
 
 use http::request::Parts as ReqHeader;
 
-use super::request::RequestHeader;
 
 pub struct ProxyDigest {
     pub response: Box<ResponseHeader>
@@ -52,13 +51,14 @@ impl std::fmt::Display for ConnectProxyError {
 #[inline]
 fn validate_connect_response(resp: Box<ResponseHeader>) -> Result<ProxyDigest> {
     if !resp.status.is_success() {
-        return Error::generate_error_with_root(ErrorType::ConnectProxyError, "None 2xx code",
+        return Error::generate_error_with_root(ErrorType::ConnectProxyError, &format!("Not STATUS 200 BUT {}", resp.status.as_str()),
     ConnectProxyError::boxed_new(resp));
     }
     Ok(ProxyDigest::new(resp))
 }
 
 ///  generate http CONNECT request 
+/// 
 /// IPV4 sturct ↓
 /// ```ruby
 /// CONNECT <target-host>:<target-port> HTTP/1.1
@@ -72,7 +72,7 @@ fn validate_connect_response(resp: Box<ResponseHeader>) -> Result<ProxyDigest> {
 /// HOST: [<IPv6-address>]:<target-port>
 /// Headers....
 /// ```
-pub fn generate_connect_header<'a, H, S> (
+fn generate_connect_header<'a, H, S> (
     host: &str,
     port: u16,
     headers: H,
@@ -112,7 +112,7 @@ where
 }
 
 #[inline]
-fn from_request_head_to_bytes (req: &RequestHeader) -> BytesMut {
+fn from_request_head_to_bytes (req: &ReqHeader) -> BytesMut {
     let mut buf = BytesMut::with_capacity(512);
     let method = req.method.as_str().as_bytes();
     buf.put_slice(method);
@@ -134,4 +134,75 @@ fn from_request_head_to_bytes (req: &RequestHeader) -> BytesMut {
     }
     buf.put_slice(CRLF);
     buf
+}
+
+#[cfg(test)]
+mod test {
+    use std::collections::BTreeMap;
+
+    use crate::connections::{response::ResponseHeader, row_connection::{from_request_head_to_bytes, generate_connect_header, validate_connect_response}};
+
+    #[test]
+    fn test_generate_connect_header_v4() {
+        let mut headers = BTreeMap::new();
+        headers.insert(String::from("test"), b"test_val".to_vec());
+        let req = generate_connect_header("baidu.com", 8080,
+    headers.iter()).unwrap();
+
+        assert_eq!(req.method, http::method::Method::CONNECT);
+
+        assert_eq!(req.uri.authority().unwrap(), "baidu.com:8080");
+
+        assert_eq!(req.headers.get(http::header::HOST).unwrap(), "baidu.com:8080");
+
+        assert_eq!(req.headers.get("test").unwrap(), "test_val");
+    }
+
+    #[test]
+    fn test_generate_connect_header_v6() {
+        let mut headers = BTreeMap::new();
+        headers.insert(String::from("test"), b"test_val".to_vec());
+        let req = generate_connect_header("::1", 8080,
+    headers.iter()).unwrap();
+
+        assert_eq!(req.method, http::method::Method::CONNECT);
+
+        assert_eq!(req.uri.authority().unwrap(), "[::1]:8080");
+
+        assert_eq!(req.headers.get(http::header::HOST).unwrap(), "[::1]:8080");
+
+        assert_eq!(req.headers.get("test").unwrap(), "test_val");
+    }
+
+    #[test]
+    fn test_generate_connect_request_is_valid() {
+        let new_request = http::Request::builder()
+            .method("CONNECT")
+            .uri("https://baidu.com:9999/")
+            .header("test", "test_val")
+            .body(())
+            .unwrap();
+        let (new_request, _) = new_request.into_parts();
+        let write_request = from_request_head_to_bytes(&new_request);
+        
+        assert_eq!(*write_request,
+            b"CONNECT baidu.com:9999 HTTP/1.1\r\ntest: test_val\r\n\r\n"[..]);
+    }
+
+    #[test]
+    fn test_validate_response() {
+        let resp = ResponseHeader::build_with_status_code(200).unwrap();
+        assert!(!validate_connect_response(Box::new(resp)).is_err());
+        
+        let resp = ResponseHeader::build_with_status_code(404).unwrap();
+        assert!(validate_connect_response(Box::new(resp)).is_err());
+
+        let mut resp = ResponseHeader::build_with_status_code(200).unwrap();
+        resp.append_header(http::header::CONTENT_LENGTH, 1).unwrap();
+        assert!(validate_connect_response(Box::new(resp)).is_ok());
+
+        let mut resp = ResponseHeader::build_with_status_code(200).unwrap();
+        resp.append_header(http::header::TRANSFER_ENCODING, "2").unwrap();
+        assert!(validate_connect_response(Box::new(resp)).is_ok());
+    }
 }

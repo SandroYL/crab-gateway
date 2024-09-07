@@ -1,4 +1,9 @@
-use bytes::BytesMut;
+use bytes::{BufMut, Bytes, BytesMut};
+use tokio::io::AsyncRead;
+
+use crate::{http::common::BODY_BUFFER_SIZE, util_code::buf_ref::{self, BufRef}};
+
+use gateway_error::{Error, Result as Result};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParseState {
@@ -68,4 +73,84 @@ pub struct BodyReader {
     pub body_buf: Option<BytesMut>,
     pub body_buf_size: usize,
     rewind_buf_len: usize,
+}
+
+impl BodyReader {
+    pub fn new() -> Self {
+        BodyReader {
+            body_state: ParseState::ToStart,
+            body_buf: None,
+            body_buf_size: BODY_BUFFER_SIZE,
+            rewind_buf_len: 0,
+        }
+    }
+
+    pub fn need_init(&self) -> bool {
+        self.body_state == ParseState::ToStart
+    }
+
+    pub fn reinit(&mut self) {
+        self.body_state = ParseState::ToStart;
+    }
+
+    pub fn body_done(&self) -> bool {
+        matches!(self.body_state, ParseState::Complete(_) | ParseState::Done(_))
+    }
+
+    fn prepare_buf(&mut self, buf_to_rewind: &[u8]) {
+        let mut body_buf = BytesMut::with_capacity(self.body_buf_size);
+        if !buf_to_rewind.is_empty() {
+            self.rewind_buf_len = buf_to_rewind.len();
+            body_buf.put_slice(buf_to_rewind);
+        }
+        if self.body_buf_size > buf_to_rewind.len() {
+            unsafe {
+                body_buf.set_len(self.body_buf_size);
+            }
+        }
+        self.body_buf = Some(body_buf);
+    }
+
+    pub fn init_chunked(&mut self, buf_to_rewind: &[u8]) {
+        self.body_state = ParseState::Chunked(0, 0, 0, 0);
+        self.prepare_buf(buf_to_rewind);
+    }
+
+    pub fn init_content_length(&mut self, cl: usize, buf_to_rewind: &[u8]) {
+        match cl {
+            0 => self.body_state = ParseState::Complete(0),
+            _ => {
+                self.prepare_buf(buf_to_rewind);
+                self.body_state = PS::Partial(0, cl)
+            }
+        }
+    }
+
+    pub fn init_http10(&mut self, buf_to_rewind: &[u8]) {
+        self.prepare_buf(buf_to_rewind);
+        self.body_state = ParseState::HTTP1_0(0);
+    }
+
+    pub fn get_body(&self, buf_ref: &BufRef) -> &[u8] {
+        buf_ref.get(self.body_buf.as_ref().unwrap())
+    }
+
+    pub fn body_empty(&self) -> bool {
+        self.body_state == PS::Complete(0)
+    }
+
+    pub async fn read_body<S> (&mut self, stream: &mut S) -> Result<Option<BufRef>>
+    where
+        S: AsyncRead + Unpin + Send, 
+    {
+        match self.body_state {
+            ParseState::Complete(_) => Ok(None),
+            ParseState::Done(_) => Ok(None),
+            ParseState::Partial(_, _) => Ok(None),
+            ParseState::Chunked(_, _, _, _) => Ok(None),
+            ParseState::HTTP1_0(_) => Ok(None),
+            ParseState::ToStart => panic!("not init BodyReader"),
+        }
+    }
+
 }

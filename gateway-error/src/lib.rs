@@ -21,6 +21,9 @@ type BErr = Box<Error>;
 pub type Result<T, E = BErr> = StdResult<T, E>;
 #[derive(Debug)]
 pub enum ErrorType {
+    /*----------Reading Request/Response------------ */
+    ReadError,
+    ConnectionClosed,
     /*----------Connect Problem------------*/
     ConnectTimeout,
     ConnectRefused,
@@ -133,25 +136,27 @@ impl Error {
         nself
     }
 
-    pub fn generate_error_with_root<T, 
-        E: Into<Box<(dyn ErrorTrait + Send + Sync)>>> (
+    pub fn generate_error_with_root<T> (
         error_type: ErrorType, 
         error_description: &str,
-        error_cause: E
+        error_cause: Option<Box<(dyn ErrorTrait + Send + Sync)>>
     ) -> Result<T> {
         let mut be = Self::new_with_reason(error_type, error_description);
-        be.because(error_cause.into());
+        if let Some(e) = error_cause {
+            be.because(e);
+        }
         Err(be)
     }
 
-    pub fn generate_error_with_root_raw<
-        E: Into<Box<(dyn ErrorTrait + Send + Sync)>>> (
+    pub fn generate_error_with_root_raw (
         error_type: ErrorType, 
         error_description: &str,
-        error_cause: E
+        error_cause: Option<Box<(dyn ErrorTrait + Send + Sync)>>
     ) -> BErr {
         let mut be = Self::new_with_reason(error_type, error_description);
-        be.because(error_cause.into());
+        if let Some(e) = error_cause {
+            be.because(e);
+        }
         be
     }
 
@@ -197,12 +202,12 @@ impl<T, E> OrErr<T, E> for StdResult<T, E> {
         context: &'static str) -> Result<T, BErr>
     where 
         E: Into<Box<dyn ErrorTrait + Send + Sync>> {
-        self.map_err(|e| Error::generate_error_with_root_raw(et, &context, e))
+        self.map_err(|e| Error::generate_error_with_root_raw(et, &context, Some(e.into())))
     }
 
     fn or_fail(self) -> StdResult<T, BErr>
     where
         E: Into<Box<dyn ErrorTrait + Send + Sync>> {
-        self.map_err(|e| Error::generate_error_with_root_raw(ErrorType::InternalError, "", e))
+        self.map_err(|e| Error::generate_error_with_root_raw(ErrorType::InternalError, "", Some(e.into())))
     }
 }

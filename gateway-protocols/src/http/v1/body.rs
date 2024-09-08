@@ -1,9 +1,12 @@
+use std::num::ParseFloatError;
+
 use bytes::{BufMut, Bytes, BytesMut};
+use log::{debug, warn};
 use tokio::io::AsyncRead;
 
 use crate::{http::common::BODY_BUFFER_SIZE, util_code::buf_ref::{self, BufRef}};
 
-use gateway_error::{Error, Result as Result};
+use gateway_error::{error_trait::OrErr, Error, ErrorType, Result as Result};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParseState {
@@ -137,6 +140,51 @@ impl BodyReader {
 
     pub fn body_empty(&self) -> bool {
         self.body_state == PS::Complete(0)
+    }
+
+    pub async fn do_read_body<S>(&mut self, stream: &mut S) -> Result<Option<BufRef>>
+    where S: AsyncRead + Unpin + Send,
+    {
+        use tokio::io::AsyncReadExt;
+
+        let body_buf = self.body_buf.as_deref_mut().unwrap();
+        let mut n = self.rewind_buf_len;
+        self.rewind_buf_len = 0;
+
+        if n == 0 {
+            n = stream
+                .read(body_buf)
+                .await
+                .or_err(ErrorType::ReadError, "when reading body")?;
+        }
+
+        match self.body_state {
+            ParseState::Partial(read, to_read) => {
+                debug!(
+                    "BodyReader body_state: {:?}, 
+                    read data from IO: {n}. ",
+                    self.body_state
+                );
+                if n == 0 {
+                    self.body_state = PS::Done(read);
+                    return Error::generate_error_with_root(ErrorType::ConnectionClosed, &format!("Peer permaturely closed connection with {} bytes of body remaining to read", to_read), None);
+                } else if n >= to_read {
+                    if n != to_read {
+                        warn!(
+                            "Peer sent more data than expected: extra {}
+                             bytes, discarded!",
+                            n - to_read)
+                    }
+                    self.body_state = ParseState::Complete(read + to_read);
+                    return Ok(Some(BufRef::new(0, to_read)));
+                } else {
+                    self.body_state = ParseState::Partial(read + n, to_read);
+                    return Ok(Some(BufRef::new(0, n)));
+                }
+            } 
+            _ => panic!("wrong body state: {:?}", self.body_state),
+
+        }
     }
 
     pub async fn read_body<S> (&mut self, stream: &mut S) -> Result<Option<BufRef>>

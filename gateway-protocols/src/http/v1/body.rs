@@ -1,7 +1,7 @@
 
 use bytes::{BufMut, BytesMut};
-use log::{debug, warn};
-use tokio::io::AsyncRead;
+use log::{debug, trace, warn};
+use tokio::{io::AsyncRead, stream};
 use crate::{http::common::BODY_BUFFER_SIZE, util_code::buf_ref::BufRef};
 
 use gateway_error::{error_trait::OrErr, Error, ErrorType, Result as Result};
@@ -140,11 +140,11 @@ impl BodyReader {
         self.body_state == PS::Complete(0)
     }
 
-    pub async fn do_read_body<S>(&mut self, stream: &mut S) -> Result<Option<BufRef>>
-    where S: AsyncRead + Unpin + Send,
+    pub async fn do_read_body<S> (&mut self, stream: &mut S, state: Option<ParseState>) -> Result<Option<BufRef>>
+    where S: AsyncRead + Unpin + Send, 
     {
         use tokio::io::AsyncReadExt;
-
+        
         let body_buf = self.body_buf.as_deref_mut().unwrap();
         let mut n = self.rewind_buf_len;
         self.rewind_buf_len = 0;
@@ -155,7 +155,31 @@ impl BodyReader {
                 .await
                 .or_err(ErrorType::ReadError, "when reading body")?;
         }
+        if state.is_some() {
+            match (state.unwrap() == self.body_state, self.body_state) {
+                (false, _) => Error::generate_error_with_root(
+                    ErrorType::ReadError, 
+                    &format!("wrong body state {:?}", self.body_state),
+                    None),
+                (true, ParseState::Partial(read, to_read)) => self.do_read_body_partial(n).await
+                (true, ParseState::ToStart) => todo!(),
+                (true, ParseState::Complete(_)) => todo!(),
+                (true, ParseState::Chunked(_, _, _, _)) => todo!(),
+                (true, ParseState::Done(_)) => todo!(),
+                (true, ParseState::HTTP1_0(_)) => todo!(),
+    
+            }
+        }
 
+
+
+        Ok(None)
+    }
+
+
+    async fn do_read_body_partial<S>(&mut self, n: usize) -> Result<Option<BufRef>>
+    where S: AsyncRead + Unpin + Send,
+    {
         match self.body_state {
             ParseState::Partial(read, to_read) => {
                 debug!(
@@ -216,12 +240,43 @@ impl BodyReader {
     where S: AsyncRead + Unpin + Send,
     {
         use tokio::io::AsyncReadExt;
+
         match self.body_state {
             ParseState::Chunked(total_read, exist_buf_start, mut exist_buf_end, mut expect_from_io) => {
-                
+                if exist_buf_start == 0 {
+                    let body_buf = self.body_buf.as_deref_mut().unwrap();
+                    if exist_buf_end == 0 {
+                        exist_buf_end = self.rewind_buf_len;
+                        self.rewind_buf_len = 0;
+                        if exist_buf_end == 0 {
+                            exist_buf_end = stream
+                                .read(body_buf)
+                                .await
+                                .or_err(ErrorType::ReadError, "when reading body")?;
+                        }
+                    } else {
+                        if expect_from_io > 0 {
+                            trace!(
+                                "partial chunk payload, expecting_from_io: {} ,
+                                    existing_buf_end {}, buf: {:?}",
+                                expect_from_io,
+                                exist_buf_end,
+                                String::from_utf8_lossy(
+                                    &self.body_buf.as_ref().unwrap()[..exist_buf_end]
+                                )
+                            );
+
+                            if expect_from_io >= exist_buf_end + 2 {
+
+                            }
+                        }
+                    }
+                    return Error::generate_error_with_root(ErrorType::ConnectProxyError, &format!("wrong body state {:?}", self.body_state), None);
+                }
             }
-            _ => 
-        }
+            _ => {}
+        };
+        return Error::generate_error_with_root(ErrorType::ConnectProxyError, &format!("wrong body state {:?}", self.body_state), None);
     }
 
     pub async fn read_body<S> (&mut self, stream: &mut S) -> Result<Option<BufRef>>

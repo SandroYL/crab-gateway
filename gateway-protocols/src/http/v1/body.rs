@@ -1,10 +1,8 @@
-use std::num::ParseFloatError;
 
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{BufMut, BytesMut};
 use log::{debug, warn};
 use tokio::io::AsyncRead;
-
-use crate::{http::common::BODY_BUFFER_SIZE, util_code::buf_ref::{self, BufRef}};
+use crate::{http::common::BODY_BUFFER_SIZE, util_code::buf_ref::BufRef};
 
 use gateway_error::{error_trait::OrErr, Error, ErrorType, Result as Result};
 
@@ -182,8 +180,47 @@ impl BodyReader {
                     return Ok(Some(BufRef::new(0, n)));
                 }
             } 
-            _ => panic!("wrong body state: {:?}", self.body_state),
+            _ => Error::generate_error_with_root(ErrorType::ConnectProxyError, &format!("wrong body state {:?}", self.body_state), None),
+        }
+    }
 
+    pub async fn do_read_body_until_closed<S>(&mut self, stream: &mut S) -> Result<Option<BufRef>> 
+    where S: AsyncRead + Unpin + Send,
+    {
+        use tokio::io::AsyncReadExt;
+
+        let body_buf = self.body_buf.as_deref_mut().unwrap();
+        let mut n = self.rewind_buf_len;
+        self.rewind_buf_len = 0;
+        if n == 0 {
+            n = stream
+                .read(body_buf)
+                .await
+                .or_err(ErrorType::ReadError, "when reading body")?;
+        }
+        match self.body_state {
+            ParseState::HTTP1_0(read) => {
+                if n == 0 {
+                    self.body_state = ParseState::Complete(read);
+                    return Ok(None);
+                } else {
+                    self.body_state = ParseState::HTTP1_0(read + n);
+                    return Ok(Some(BufRef::new(0, n)));
+                }
+            }
+            _ => Error::generate_error_with_root(ErrorType::ConnectProxyError, &format!("wrong body state {:?}", self.body_state), None)
+        }
+    }
+
+    pub async fn do_read_chunked_body<S>(&mut self, stream: &mut S) -> Result<Option<BufRef>> 
+    where S: AsyncRead + Unpin + Send,
+    {
+        use tokio::io::AsyncReadExt;
+        match self.body_state {
+            ParseState::Chunked(total_read, exist_buf_start, mut exist_buf_end, mut expect_from_io) => {
+                
+            }
+            _ => 
         }
     }
 

@@ -209,7 +209,7 @@ impl BodyReader {
         }
     }
 
-    pub async fn do_read_body_http_1_0(&mut self, n: usize) -> Result<Option<BufRef>> {
+    async fn do_read_body_http_1_0(&mut self, n: usize) -> Result<Option<BufRef>> {
         match self.body_state {
             ParseState::HTTP1_0(read) => {
                 if n == 0 {
@@ -224,14 +224,16 @@ impl BodyReader {
         }
     }
 
-    pub async fn do_read_chunked(&mut self, n: usize) -> Result<Option<BufRef>> {
+    async fn do_read_chunked<S> (&mut self, stream: &mut S , n: usize) -> Result<Option<BufRef>>
+    where S: AsyncRead + Unpin + Send
+    {
+        use tokio::io::AsyncReadExt;
         match self.body_state {
             ParseState::Chunked(total_read, exist_buf_start, mut exist_buf_end, mut expect_from_io) => {
                 if exist_buf_start == 0 {
                     let body_buf = self.body_buf.as_deref_mut().unwrap();
                     if exist_buf_end == 0 {
-                        exist_buf_end = self.rewind_buf_len;
-                        self.rewind_buf_len = 0; 
+                        std::mem::swap(&mut exist_buf_end, &mut self.rewind_buf_len);
                         if exist_buf_end == 0 {
                             exist_buf_end = stream
                                 .read(body_buf)
@@ -239,6 +241,13 @@ impl BodyReader {
                                 .or_err(ErrorType::ReadError, "when reading body")?;
                         }
                     } else {
+                        /* existing_buf_end != 0 this is partial chunk head */
+                        /* copy the #expecting_from_io bytes until index existing_buf_end
+                         * to the front and read more to form a valid chunk head.
+                         * existing_buf_end is the end of the partial head and
+                         * expecting_from_io is the len of it */
+                        body_buf
+                            .copy_within(exist_buf_end - expect_from_io..exist_buf_end, 0);
                         if expect_from_io > 0 {
                             trace!(
                                 "partial chunk payload, expecting_from_io: {} ,

@@ -146,15 +146,17 @@ impl BodyReader {
         use tokio::io::AsyncReadExt;
         
         let body_buf = self.body_buf.as_deref_mut().unwrap();
-        let mut n = self.rewind_buf_len;
-        self.rewind_buf_len = 0;
+        let mut n = 0;
+        std::mem::swap(&mut n, &mut self.rewind_buf_len);
 
+        //如果没有需要回滚的data
         if n == 0 {
             n = stream
                 .read(body_buf)
                 .await
                 .or_err(ErrorType::ReadError, "when reading body")?;
         }
+
         if state.is_some() {
             match (state.unwrap() == self.body_state, self.body_state) {
                 (false, _) => Error::generate_error_with_root(
@@ -177,9 +179,7 @@ impl BodyReader {
     }
 
 
-    async fn do_read_body_partial<S>(&mut self, n: usize) -> Result<Option<BufRef>>
-    where S: AsyncRead + Unpin + Send,
-    {
+    async fn do_read_body_partial(&mut self, n: usize) -> Result<Option<BufRef>> {
         match self.body_state {
             ParseState::Partial(read, to_read) => {
                 debug!(
@@ -187,11 +187,11 @@ impl BodyReader {
                     read data from IO: {n}. ",
                     self.body_state
                 );
-                if n == 0 {
+                if n == 0 { //虽然有to_read, 但是读不了body, 证明连接断开了
                     self.body_state = PS::Done(read);
                     return Error::generate_error_with_root(ErrorType::ConnectionClosed, &format!("Peer permaturely closed connection with {} bytes of body remaining to read", to_read), None);
                 } else if n >= to_read {
-                    if n != to_read {
+                    if n != to_read { //太多了 discard
                         warn!(
                             "Peer sent more data than expected: extra {}
                              bytes, discarded!",
@@ -199,7 +199,8 @@ impl BodyReader {
                     }
                     self.body_state = ParseState::Complete(read + to_read);
                     return Ok(Some(BufRef::new(0, to_read)));
-                } else {
+                } 
+                else {
                     self.body_state = ParseState::Partial(read + n, to_read);
                     return Ok(Some(BufRef::new(0, n)));
                 }
@@ -208,20 +209,7 @@ impl BodyReader {
         }
     }
 
-    pub async fn do_read_body_until_closed<S>(&mut self, stream: &mut S) -> Result<Option<BufRef>> 
-    where S: AsyncRead + Unpin + Send,
-    {
-        use tokio::io::AsyncReadExt;
-
-        let body_buf = self.body_buf.as_deref_mut().unwrap();
-        let mut n = self.rewind_buf_len;
-        self.rewind_buf_len = 0;
-        if n == 0 {
-            n = stream
-                .read(body_buf)
-                .await
-                .or_err(ErrorType::ReadError, "when reading body")?;
-        }
+    pub async fn do_read_body_http_1_0(&mut self, n: usize) -> Result<Option<BufRef>> {
         match self.body_state {
             ParseState::HTTP1_0(read) => {
                 if n == 0 {
@@ -236,18 +224,14 @@ impl BodyReader {
         }
     }
 
-    pub async fn do_read_chunked_body<S>(&mut self, stream: &mut S) -> Result<Option<BufRef>> 
-    where S: AsyncRead + Unpin + Send,
-    {
-        use tokio::io::AsyncReadExt;
-
+    pub async fn do_read_chunked(&mut self, n: usize) -> Result<Option<BufRef>> {
         match self.body_state {
             ParseState::Chunked(total_read, exist_buf_start, mut exist_buf_end, mut expect_from_io) => {
                 if exist_buf_start == 0 {
                     let body_buf = self.body_buf.as_deref_mut().unwrap();
                     if exist_buf_end == 0 {
                         exist_buf_end = self.rewind_buf_len;
-                        self.rewind_buf_len = 0;
+                        self.rewind_buf_len = 0; 
                         if exist_buf_end == 0 {
                             exist_buf_end = stream
                                 .read(body_buf)

@@ -1,7 +1,7 @@
 
 use bytes::{BufMut, BytesMut};
-use log::{debug, trace, warn};
-use tokio::{io::AsyncRead, stream};
+use log::{debug, warn};
+use tokio::io::AsyncRead;
 use crate::{http::common::BODY_BUFFER_SIZE, util_code::buf_ref::BufRef};
 
 use gateway_error::{error_trait::OrErr, Error, ErrorType, Result as Result};
@@ -9,11 +9,11 @@ use gateway_error::{error_trait::OrErr, Error, ErrorType, Result as Result};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParseState {
     ToStart,
-    Complete(usize),                     // total size
-    Partial(usize, usize),               // size read, remaining size
-    Chunked(usize, usize, usize, usize), // size read, next to read in current buf start, read in current buf start, remaining chucked size to read from IO
-    Done(usize),                         // done but there is error, size read
-    HTTP1_0(usize),                      // read until connection closed, size read
+    Complete(ReadBytes),
+    Partial(ReadBytes, RemainingBytes),
+    Chunked(ReadBytes, ChunkSize, ChunkOffset, RemainingBytes),
+    Done(ReadBytes),
+    HTTP1_0(ReadBytes),
 }
 
 type PS = ParseState;
@@ -241,30 +241,23 @@ impl BodyReader {
                                 .or_err(ErrorType::ReadError, "when reading body")?;
                         }
                     } else {
-                        /* existing_buf_end != 0 this is partial chunk head */
-                        /* copy the #expecting_from_io bytes until index existing_buf_end
-                         * to the front and read more to form a valid chunk head.
-                         * existing_buf_end is the end of the partial head and
-                         * expecting_from_io is the len of it */
                         body_buf
                             .copy_within(exist_buf_end - expect_from_io..exist_buf_end, 0);
-                        if expect_from_io > 0 {
-                            trace!(
-                                "partial chunk payload, expecting_from_io: {} ,
-                                    existing_buf_end {}, buf: {:?}",
-                                expect_from_io,
-                                exist_buf_end,
-                                String::from_utf8_lossy(
-                                    &self.body_buf.as_ref().unwrap()[..exist_buf_end]
-                                )
-                            );
-
-                            if expect_from_io >= exist_buf_end + 2 {
-
-                            }
-                        }
+                        let new_bytes = stream
+                            .read(&mut body_buf[expect_from_io..])
+                            .await
+                            .or_err(ErrorType::ReadError, "when reading body")?;
+                        exist_buf_end + expect_from_io + new_bytes;
+                        expect_from_io = 0;
                     }
-                    return Error::generate_error_with_root(ErrorType::ConnectProxyError, &format!("wrong body state {:?}", self.body_state), None);
+                    self.body_state = self.body_state.new_buf(exist_buf_end);
+                }
+                if exist_buf_end == 0 {
+                    self.body_state = self.body_state.done(0);
+                    return Error::generate_error_with_root(ErrorType::ConnectionClosed, &format!(
+                        "Connection prematurely closed without the termination chunk,
+                         read {total_read} bytes"
+                    ), None);
                 }
             }
             _ => {}
@@ -287,3 +280,9 @@ impl BodyReader {
     }
 
 }
+
+///以下是用来提高程序可读性的
+type ReadBytes = usize;
+type RemainingBytes = usize;
+type ChunkSize = usize;
+type ChunkOffset = usize;

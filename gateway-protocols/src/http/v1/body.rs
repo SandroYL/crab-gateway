@@ -1,6 +1,6 @@
 
 use bytes::{BufMut, BytesMut};
-use log::{debug, warn};
+use log::{debug, trace, warn};
 use tokio::io::AsyncRead;
 use crate::{http::common::BODY_BUFFER_SIZE, util_code::buf_ref::BufRef};
 
@@ -258,6 +258,43 @@ impl BodyReader {
                         "Connection prematurely closed without the termination chunk,
                          read {total_read} bytes"
                     ), None);
+                } else {
+                    if expect_from_io > 0 {
+                        trace!(
+                            "partial chunk payload, expecting_from_io: {}, 
+                                existing_buf_end {}, buf: {:?} ",
+                            expect_from_io,
+                            exist_buf_end,
+                            String::from_utf8_lossy(
+                                &self.body_buf.as_ref().unwrap()[..exist_buf_end]
+                            )
+                        );
+                        // partial chunk payload, will read more
+                        if expect_from_io >= exist_buf_end + 2 {
+                            self.body_state = self.body_state.partial_chunk(
+                                exist_buf_end,
+                                expect_from_io - exist_buf_end, 
+                            );
+                            return Ok(Some(BufRef::new(0, exist_buf_end)));
+                        }
+                        /* EXPECTING DATA + CRLF OR JUST CRLF */
+                        let payload_size = if expect_from_io > 2 {
+                            expect_from_io - 2
+                        } else {
+                            0
+                        };
+                        if expect_from_io >= exist_buf_end {
+                            self.body_state = self
+                                .body_state
+                                .partial_chunk(payload_size, expect_from_io - exist_buf_end);
+                            return Ok(Some(BufRef(0, payload_size)));
+                        }
+
+                        self.body_state = self.body_state
+                            .multi_chunk(payload_size, expect_from_io);
+                        return Ok(Some(BufRef::new(0, payload_size)));
+                    }
+                    self.par
                 }
             }
             _ => {}

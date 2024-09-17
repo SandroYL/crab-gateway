@@ -269,7 +269,7 @@ impl BodyReader {
                                 &self.body_buf.as_ref().unwrap()[..exist_buf_end]
                             )
                         );
-                        // partial chunk payload, will read more
+                        // 还没读完一个chunk
                         if expect_from_io >= exist_buf_end + 2 {
                             self.body_state = self.body_state.partial_chunk(
                                 exist_buf_end,

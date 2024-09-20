@@ -2,7 +2,7 @@
 use bytes::{BufMut, BytesMut};
 use log::{debug, trace, warn};
 use tokio::io::AsyncRead;
-use crate::{http::common::BODY_BUFFER_SIZE, util_code::buf_ref::BufRef};
+use crate::{http::common::{BODY_BUFFER_SIZE, PARTIAL_CHUNK_HHEAD_LIMIT}, util_code::buf_ref::BufRef};
 
 use gateway_error::{error_trait::OrErr, Error, ErrorType, Result as Result};
 
@@ -345,7 +345,15 @@ impl BodyReader {
                         return Ok(Some(BufRef::new(
                             buf_index_start + payload_index, chunk_size)));
                     }
-                    httparse::Status::Partial => {}
+                    httparse::Status::Partial => {
+                        if buf.len() > PARTIAL_CHUNK_HHEAD_LIMIT {
+                            self.body_state = self.body_state.done(0);
+                             Error::generate_error_with_root(ErrorType::Custom("INVALID_CHUNK"), "Chunk extover limit", None)
+                        } else {
+                            self.body_state = self.body_state.partial_chunk_head(buf_index_end, buf.len());
+                            Ok(Some(BufRef::new(0, 0)))
+                        }
+                    }
                 }
             }
             Err(e) => {

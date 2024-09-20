@@ -224,7 +224,7 @@ impl BodyReader {
         }
     }
 
-    async fn do_read_chunked<S> (&mut self, stream: &mut S , n: usize) -> Result<Option<BufRef>>
+    async fn do_read_body_chunked<S> (&mut self, stream: &mut S , n: usize) -> Result<Option<BufRef>>
     where S: AsyncRead + Unpin + Send
     {
         use tokio::io::AsyncReadExt;

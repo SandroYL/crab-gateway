@@ -315,8 +315,7 @@ impl BodyReader {
                 match status {
                     httparse::Status::Complete((payload_index, chunk_size)) => {
                         trace!(
-                            "Got size {chunk_size}, payload_index: {payload_index},
-                            chunk: {:?}",
+                            "Got size {chunk_size}, payload_index: {payload_index},chunk: {:?}",
                             String::from_utf8_lossy(buf)
                         );
                         let chunk_size = chunk_size as usize;
@@ -324,7 +323,27 @@ impl BodyReader {
                             self.body_state = self.body_state.finish(0);
                             return Ok(None);
                         }
-                        return Ok(None);
+
+                        let data_end_index = payload_index + chunk_size;
+                        let chunk_end_index = data_end_index + 2;
+                        if chunk_end_index >= buf.len() {
+                            let actual_size = if data_end_index > buf.len() {
+                                buf.len() - payload_index
+                            } else {
+                                chunk_size
+                            };
+                            self.body_state = self
+                                .body_state
+                                .partial_chunk(actual_size, chunk_end_index - buf.len());
+                            return Ok(Some(BufRef::new(
+                                buf_index_start + payload_index, actual_size)));
+                        }
+                        self.body_state = self
+                            .body_state
+                            .multi_chunk(chunk_size, buf_index_start + chunk_end_index);
+
+                        return Ok(Some(BufRef::new(
+                            buf_index_start + payload_index, chunk_size)));
                     }
                     httparse::Status::Partial => {}
                 }

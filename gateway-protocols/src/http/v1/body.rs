@@ -252,6 +252,7 @@ impl BodyReader {
                     }
                     self.body_state = self.body_state.new_buf(exist_buf_end);
                 }
+
                 if exist_buf_end == 0 {
                     self.body_state = self.body_state.done(0);
                     return Error::generate_error_with_root(ErrorType::ConnectionClosed, &format!(
@@ -269,7 +270,7 @@ impl BodyReader {
                                 &self.body_buf.as_ref().unwrap()[..exist_buf_end]
                             )
                         );
-                        // partial chunk payload, will read more
+                        // 还没读完一个chunk
                         if expect_from_io >= exist_buf_end + 2 {
                             self.body_state = self.body_state.partial_chunk(
                                 exist_buf_end,
@@ -300,6 +301,38 @@ impl BodyReader {
             _ => {}
         };
         return Error::generate_error_with_root(ErrorType::ConnectProxyError, &format!("wrong body state {:?}", self.body_state), None);
+    }
+
+    fn parse_chunked_buf (
+        &mut self,
+        buf_index_start: usize,
+        buf_index_end: usize
+    ) -> Result<Option<BufRef>> {
+        let buf = &self.body_buf.as_ref().unwrap()[buf_index_start..buf_index_end];
+        let chunk_status = httparse::parse_chunk_size(buf);
+        match chunk_status {
+            Ok(status) => {
+                match status {
+                    httparse::Status::Complete((payload_index, chunk_size)) => {
+                        trace!(
+                            "Got size {chunk_size}, payload_index: {payload_index},
+                            chunk: {:?}",
+                            String::from_utf8_lossy(buf)
+                        );
+                        let chunk_size = chunk_size as usize;
+                        if chunk_size == 0 {
+                            self.body_state = self.body_state.finish(0);
+                            return Ok(None);
+                        }
+                        return Ok(None);
+                    }
+                    httparse::Status::Partial => {}
+                }
+            }
+            Err(e) => {
+                Error::generate_error_with_root(ErrorType::Custom("INVALID_CHUNK"), &format!("Invalid chucked encoding: {:?}", e), None)
+            }
+        }
     }
 
     pub async fn read_body<S> (&mut self, stream: &mut S) -> Result<Option<BufRef>>

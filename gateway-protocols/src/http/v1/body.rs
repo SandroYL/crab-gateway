@@ -1,9 +1,8 @@
 
 use bytes::{BufMut, BytesMut};
 use log::{debug, trace, warn};
-use tokio::io::AsyncRead;
 use crate::{http::common::{BODY_BUFFER_SIZE, PARTIAL_CHUNK_HHEAD_LIMIT}, util_code::buf_ref::BufRef};
-
+use tokio::io::{AsyncRead, AsyncReadExt};
 use gateway_error::{error_trait::OrErr, Error, ErrorType, Result as Result};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -140,46 +139,33 @@ impl BodyReader {
         self.body_state == PS::Complete(0)
     }
 
-    pub async fn do_read_body<S> (&mut self, stream: &mut S, state: Option<ParseState>) -> Result<Option<BufRef>>
+    pub async fn do_read_body<S> (&mut self, stream: &mut S) -> Result<Option<BufRef>>
     where S: AsyncRead + Unpin + Send, 
     {
-        use tokio::io::AsyncReadExt;
-        
+        match (self.body_state) {
+            ParseState::Partial(_, _) => self.do_read_body_partial(stream).await,
+            ParseState::ToStart => Ok(None),
+            ParseState::Complete(_) => Ok(None),
+            ParseState::Chunked(_, _, _, _) => self.do_read_body_chunked(stream).await,
+            ParseState::Done(_) => Ok(None),
+            ParseState::HTTP1_0(_) => self.do_read_body_http_1_0(stream).await,
+        }
+    }
+
+
+    async fn do_read_body_partial<S>(&mut self, stream: &mut S) -> Result<Option<BufRef>> 
+    where S: AsyncRead + Unpin + Send,
+    {
         let body_buf = self.body_buf.as_deref_mut().unwrap();
+        //如果没有需要回滚的data
         let mut n = 0;
         std::mem::swap(&mut n, &mut self.rewind_buf_len);
-
-        //如果没有需要回滚的data
         if n == 0 {
             n = stream
                 .read(body_buf)
                 .await
                 .or_err(ErrorType::ReadError, "when reading body")?;
         }
-
-        if state.is_some() {
-            match (state.unwrap() == self.body_state, self.body_state) {
-                (false, _) => Error::generate_error_with_root(
-                    ErrorType::ReadError, 
-                    &format!("wrong body state {:?}", self.body_state),
-                    None),
-                (true, ParseState::Partial(read, to_read)) => self.do_read_body_partial(n).await
-                (true, ParseState::ToStart) => todo!(),
-                (true, ParseState::Complete(_)) => todo!(),
-                (true, ParseState::Chunked(_, _, _, _)) => todo!(),
-                (true, ParseState::Done(_)) => todo!(),
-                (true, ParseState::HTTP1_0(_)) => todo!(),
-    
-            }
-        }
-
-
-
-        Ok(None)
-    }
-
-
-    async fn do_read_body_partial(&mut self, n: usize) -> Result<Option<BufRef>> {
         match self.body_state {
             ParseState::Partial(read, to_read) => {
                 debug!(
@@ -209,7 +195,19 @@ impl BodyReader {
         }
     }
 
-    async fn do_read_body_http_1_0(&mut self, n: usize) -> Result<Option<BufRef>> {
+    async fn do_read_body_http_1_0<S>(&mut self, stream: &mut S) -> Result<Option<BufRef>>
+    where S: AsyncRead + Unpin + Send,
+    {
+        let body_buf = self.body_buf.as_deref_mut().unwrap();
+        //如果没有需要回滚的data
+        let mut n = 0;
+        std::mem::swap(&mut n, &mut self.rewind_buf_len);
+        if n == 0 {
+            n = stream
+                .read(body_buf)
+                .await
+                .or_err(ErrorType::ReadError, "when reading body")?;
+        }
         match self.body_state {
             ParseState::HTTP1_0(read) => {
                 if n == 0 {
@@ -224,7 +222,7 @@ impl BodyReader {
         }
     }
 
-    async fn do_read_body_chunked<S> (&mut self, stream: &mut S , n: usize) -> Result<Option<BufRef>>
+    async fn do_read_body_chunked<S> (&mut self, stream: &mut S) -> Result<Option<BufRef>>
     where S: AsyncRead + Unpin + Send
     {
         use tokio::io::AsyncReadExt;
@@ -247,7 +245,7 @@ impl BodyReader {
                             .read(&mut body_buf[expect_from_io..])
                             .await
                             .or_err(ErrorType::ReadError, "when reading body")?;
-                        exist_buf_end + expect_from_io + new_bytes;
+                        exist_buf_end = expect_from_io + new_bytes;
                         expect_from_io = 0;
                     }
                     self.body_state = self.body_state.new_buf(exist_buf_end);
@@ -259,48 +257,45 @@ impl BodyReader {
                         "Connection prematurely closed without the termination chunk,
                          read {total_read} bytes"
                     ), None);
-                } else {
-                    if expect_from_io > 0 {
-                        trace!(
-                            "partial chunk payload, expecting_from_io: {}, 
-                                existing_buf_end {}, buf: {:?} ",
-                            expect_from_io,
+                } else if expect_from_io > 0 {
+                    trace!(
+                        "partial chunk payload, expecting_from_io: {}, 
+                            existing_buf_end {}, buf: {:?} ",
+                        expect_from_io,
+                        exist_buf_end,
+                        String::from_utf8_lossy(
+                            &self.body_buf.as_ref().unwrap()[..exist_buf_end]
+                        )
+                    );
+                    // 还没读完一个chunk
+                    if expect_from_io >= exist_buf_end + 2 {
+                        self.body_state = self.body_state.partial_chunk(
                             exist_buf_end,
-                            String::from_utf8_lossy(
-                                &self.body_buf.as_ref().unwrap()[..exist_buf_end]
-                            )
+                            expect_from_io - exist_buf_end, 
                         );
-                        // 还没读完一个chunk
-                        if expect_from_io >= exist_buf_end + 2 {
-                            self.body_state = self.body_state.partial_chunk(
-                                exist_buf_end,
-                                expect_from_io - exist_buf_end, 
-                            );
-                            return Ok(Some(BufRef::new(0, exist_buf_end)));
-                        }
-                        /* EXPECTING DATA + CRLF OR JUST CRLF */
-                        let payload_size = if expect_from_io > 2 {
-                            expect_from_io - 2
-                        } else {
-                            0
-                        };
-                        if expect_from_io >= exist_buf_end {
-                            self.body_state = self
-                                .body_state
-                                .partial_chunk(payload_size, expect_from_io - exist_buf_end);
-                            return Ok(Some(BufRef(0, payload_size)));
-                        }
-
-                        self.body_state = self.body_state
-                            .multi_chunk(payload_size, expect_from_io);
-                        return Ok(Some(BufRef::new(0, payload_size)));
+                        return Ok(Some(BufRef::new(0, exist_buf_end)));
                     }
-                    self.par
+                    /* EXPECTING DATA + CRLF OR JUST CRLF */
+                    let payload_size = if expect_from_io > 2 {
+                        expect_from_io - 2
+                    } else {
+                        0
+                    };
+                    if expect_from_io >= exist_buf_end {
+                        self.body_state = self
+                            .body_state
+                            .partial_chunk(payload_size, expect_from_io - exist_buf_end);
+                        return Ok(Some(BufRef(0, payload_size)));
+                    }
+
+                    self.body_state = self.body_state
+                        .multi_chunk(payload_size, expect_from_io);
+                    return Ok(Some(BufRef::new(0, payload_size)));
                 }
+                self.parse_chunked_buf(exist_buf_start, exist_buf_end)
             }
-            _ => {}
-        };
-        return Error::generate_error_with_root(ErrorType::ConnectProxyError, &format!("wrong body state {:?}", self.body_state), None);
+            _ => Error::generate_error_with_root(ErrorType::ConnectProxyError, &format!("wrong body state {:?}", self.body_state), None)
+        }
     }
 
     fn parse_chunked_buf (

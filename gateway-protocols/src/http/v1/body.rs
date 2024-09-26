@@ -378,3 +378,18 @@ type ReadBytes = usize;
 type RemainingBytes = usize;
 type ChunkSize = usize;
 type ChunkOffset = usize;
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn init_log() {
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
+
+    #[tokio::test]
+    async fn read_with_body_content_length() {
+
+    }
+}

@@ -19,7 +19,7 @@ pub struct Error {
 
 type BErr = Box<Error>;
 pub type Result<T, E = BErr> = StdResult<T, E>;
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum ErrorType {
     /*----------Reading Request/Response------------ */
     ReadError,
@@ -94,6 +94,9 @@ impl Error {
         }
     }
 
+    pub fn etype(&self) -> &ErrorType {
+        &self.error_type
+    }
     ///generate error with cause.
     /// 
     ///[RetryType] not always worked, if error_cause cant retry, then [RetryType] is false.

@@ -9,6 +9,7 @@ httparse = "1.9.4"
 bytes = "1.7.1"
 log = "0.4.22"
 env_logger = "0.11.5"
-tokio = { version = "1", feature = ["io", "io-util", "test-util"]}
+tokio-test = "0.4.4"
+tokio = { version = "1", features = ["full"]}
 gateway-basic = { version = "0.1.0", path = "../gateway-basic" }
 gateway-error = { version = "0.1.0", path = "../gateway-error" }

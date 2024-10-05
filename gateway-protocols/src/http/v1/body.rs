@@ -10,7 +10,7 @@ pub enum ParseState {
     ToStart,
     Complete(ReadBytes),
     Partial(ReadBytes, RemainingBytes),
-    Chunked(ReadBytes, ChunkSize, ChunkOffset, RemainingBytes),
+    Chunked(ReadBytes, NxtChunkStartIdx, NxtChunkEndIdx, RemainingBytes),
     Done(ReadBytes),
     HTTP1_0(ReadBytes),
 }
@@ -156,13 +156,13 @@ impl BodyReader {
     async fn do_read_body_partial<S>(&mut self, stream: &mut S) -> Result<Option<BufRef>> 
     where S: AsyncRead + Unpin + Send,
     {
-        let body_buf = self.body_buf.as_deref_mut().unwrap();
+        let mut body_buf = self.body_buf.as_deref_mut().unwrap();
         //如果没有需要回滚的data
         let mut n = 0;
         std::mem::swap(&mut n, &mut self.rewind_buf_len);
         if n == 0 {
             n = stream
-                .read(body_buf)
+                .read(&mut body_buf)
                 .await
                 .or_err(ErrorType::ReadError, "when reading body")?;
         }
@@ -187,7 +187,7 @@ impl BodyReader {
                     return Ok(Some(BufRef::new(0, to_read)));
                 } 
                 else {
-                    self.body_state = ParseState::Partial(read + n, to_read);
+                    self.body_state = ParseState::Partial(read + n, to_read - n);
                     return Ok(Some(BufRef::new(0, n)));
                 }
             } 
@@ -356,32 +356,23 @@ impl BodyReader {
             }
         }
     }
-
-    pub async fn read_body<S> (&mut self, stream: &mut S) -> Result<Option<BufRef>>
-    where
-        S: AsyncRead + Unpin + Send, 
-    {
-        match self.body_state {
-            ParseState::Complete(_) => Ok(None),
-            ParseState::Done(_) => Ok(None),
-            ParseState::Partial(_, _) => Ok(None),
-            ParseState::Chunked(_, _, _, _) => Ok(None),
-            ParseState::HTTP1_0(_) => Ok(None),
-            ParseState::ToStart => panic!("not init BodyReader"),
-        }
-    }
-
 }
 
 ///以下是用来提高程序可读性的
 type ReadBytes = usize;
 type RemainingBytes = usize;
-type ChunkSize = usize;
-type ChunkOffset = usize;
+type NxtChunkStartIdx = usize;
+type NxtChunkEndIdx = usize;
 
 
+///
+/// unit test read body!
 #[cfg(test)]
-mod tests {
+mod partial_test {
+    use tokio_test::io::Builder;
+
+    use crate::connections::row_connection::ConnectProxyError;
+
     use super::*;
 
     fn init_log() {
@@ -389,7 +380,323 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn read_with_body_content_length() {
+    async fn read_partial_with_fixed_length() {
+        init_log();
+        /* Perfectly fixed */
+        let input = b"abcde";
+        let mut mock_io = Builder::new().read(&input[..]).build();
+        let mut body_reader = BodyReader::new();
+        body_reader.init_content_length(5, b"");
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
 
+        assert_eq!(res, BufRef::new(0, 5));
+        assert_eq!(body_reader.body_state, ParseState::Complete(5));
+        assert_eq!(input, body_reader.get_body(&res));
+
+        /* get stream data too long */
+        let input = b"asdasdasd";
+        mock_io = Builder::new().read(&input[..]).build();
+        body_reader = BodyReader::new();
+        body_reader.init_content_length(5, b"");
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+
+        assert_eq!(res, BufRef::new(0, 5));
+        assert_eq!(body_reader.body_state, ParseState::Complete(5));
+        assert_eq!(b"asdas", body_reader.get_body(&res));
+
+        /*  not enough */
+        let input = b"asdasdasd";
+        mock_io = Builder::new().read(&input[..]).build();
+        body_reader = BodyReader::new();
+        body_reader.init_content_length(10, b"");
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+
+        assert_eq!(res, BufRef::new(0, 9));
+        assert_eq!(body_reader.body_state, ParseState::Partial(9, 1));
+        assert_eq!(b"asdasdasd", body_reader.get_body(&res));
+
+        /* partial transport */
+        let input1 = b"abc";
+        let input2 = b"abc";
+        mock_io = Builder::new().read(&input1[..]).read(&input2[..]).build();
+        body_reader = BodyReader::new();
+        body_reader.init_content_length(6, b"");
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        
+        assert_eq!(res, BufRef::new(0, 3));
+        assert_eq!(body_reader.body_state, ParseState::Partial(3, 3));
+        assert_eq!(input1, body_reader.get_body(&res));
+
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(0, 3));
+        assert_eq!(body_reader.body_state, ParseState::Complete(6));
+        assert_eq!(input2, body_reader.get_body(&res));
     }
-}
+
+    #[tokio::test]
+    async fn read_partial_with_multi_packets() {
+        init_log();
+        let input1 = b"abc";
+        let input2 = b"abc";
+        let mut mock_io = Builder::new().read(&input1[..]).read(&input2[..]).build();
+        let mut body_reader = BodyReader::new();
+        body_reader.init_content_length(6, b"");
+        assert_eq!(body_reader.body_state, ParseState::Partial(0, 6));
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        
+        assert_eq!(res, BufRef::new(0, 3));
+        assert_eq!(body_reader.body_state, ParseState::Partial(3, 3));
+        assert_eq!(input1, body_reader.get_body(&res));
+
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(0, 3));
+        assert_eq!(body_reader.body_state, ParseState::Complete(6));
+        assert_eq!(input2, body_reader.get_body(&res));
+    }
+
+    #[tokio::test]
+    async fn read_partial_disconnnect() {
+        let input1 = b"abc";
+        let input2 = b"";
+        let mut mock_io = Builder::new().read(&input1[..]).read(&input2[..]).build();
+        let mut body_reader = BodyReader::new();
+        body_reader.init_content_length(9, b"");
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(0, 3));
+        assert_eq!(body_reader.body_state, ParseState::Partial(3, 6));
+        assert_eq!(input1, body_reader.get_body(&res));
+
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap_err();
+        assert_eq!(&ErrorType::ConnectionClosed, res.etype());
+        assert_eq!(body_reader.body_state, ParseState::Done(3));
+    }
+
+    #[tokio::test]
+    async fn read_with_rewind() {
+        let rewind = b"ab";
+        let input = b"abc";
+        let mut mock_io = Builder::new().read(&input[..]).build();
+        let mut body_reader = BodyReader::new();
+        body_reader.init_content_length(5, rewind);
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(0, 2));
+        assert_eq!(body_reader.body_state, ParseState::Partial(2, 3));
+        assert_eq!(rewind, body_reader.get_body(&res));
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(0, 3));
+        assert_eq!(body_reader.body_state, ParseState::Complete(5));
+        assert_eq!(input, body_reader.get_body(&res));
+    }
+
+    #[tokio::test]
+    async fn read_with_body_http10() {
+        init_log();
+        let inputs = ["abc", "efg", "123", ""];
+        let mut mock_io = Builder::new();
+        for input in inputs {
+            mock_io.read(input.as_bytes());
+        }
+        let mut mock_io = mock_io.build();
+        let mut body_reader = BodyReader::new();
+        body_reader.init_http10(b"");
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(0, 3));
+        assert_eq!(body_reader.body_state, ParseState::HTTP1_0(3));
+        assert_eq!(inputs[0].as_bytes(), body_reader.get_body(&res));
+
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(0, 3));
+        assert_eq!(body_reader.body_state, ParseState::HTTP1_0(6));
+        assert_eq!(inputs[1].as_bytes(), body_reader.get_body(&res));
+        
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(0, 3));
+        assert_eq!(body_reader.body_state, ParseState::HTTP1_0(9));
+        assert_eq!(inputs[2].as_bytes(), body_reader.get_body(&res));
+        
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap();
+        assert_eq!(res, None);
+        assert_eq!(body_reader.body_state, ParseState::Complete(9));
+    }
+
+    #[tokio::test]
+    async fn read_with_body_http10_rewind() {
+        init_log();
+        let rewind = b"cmd";
+        let inputs = ["abc", ""];
+        let mut mock_io = Builder::new();
+        for input in inputs {
+            mock_io.read(input.as_bytes());
+        }
+        let mut mock_io = mock_io.build();
+        let mut body_reader = BodyReader::new();
+        body_reader.init_http10(rewind);
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(0, 3));
+        assert_eq!(body_reader.body_state, ParseState::HTTP1_0(3));
+        assert_eq!(rewind, body_reader.get_body(&res));
+
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(0, 3));
+        assert_eq!(body_reader.body_state, ParseState::HTTP1_0(6));
+        assert_eq!(inputs[0].as_bytes(), body_reader.get_body(&res));
+    
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap();
+        assert_eq!(res, None);
+        assert_eq!(body_reader.body_state, ParseState::Complete(6));
+    }
+
+    #[tokio::test]
+    async fn read_with_zero_chunk() {
+        init_log();
+        let input = b"0\r\n\r\n";
+        let mut mock_io = Builder::new().read(&input[..]).build();
+        let mut body_reader = BodyReader::new();
+        body_reader.init_chunked(b"");
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap();
+        assert_eq!(res, None);
+        assert_eq!(body_reader.body_state, ParseState::Complete(0));
+    }
+
+    #[tokio::test]
+    async fn read_with_chunk_ext() {
+        init_log();
+        let input = b"0;aaaa\r\n\r\n";
+        let mut mock_io = Builder::new().read(&input[..]).build();
+        let mut body_reader = BodyReader::new();
+        body_reader.init_chunked(b"");
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap();
+        assert_eq!(res, None);
+        assert_eq!(body_reader.body_state, ParseState::Complete(0));
+    }
+
+    #[tokio::test]
+    async fn read_with_chunk_fixed() {
+        init_log();
+        let input1 = b"1\r\na\r\n";
+        let input2 = b"0\r\n\r\n";
+        let mut mock_io = Builder::new()
+            .read(&input1[..])
+            .read(&input2[..])
+            .build();
+        let mut body_reader = BodyReader::new();
+        body_reader.init_chunked(b"");
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(3, 1));
+        assert_eq!(&input1[3..4], body_reader.get_body(&res));
+        assert_eq!(body_reader.body_state, ParseState::Chunked(1, 0, 0, 0));
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap();
+        assert_eq!(res, None);
+        assert_eq!(body_reader.body_state, ParseState::Complete(1));
+    }
+
+    #[tokio::test]
+    async fn read_with_chunk_multi_fixed_rewind() {
+        init_log();
+        let rewind = b"9\r\n123456789\r\n";
+        let input1 = b"5\r\nabcde\r\n";
+        let input2 = b"3\r\nfg";
+        let input2_1 = b"h\r\n";
+        let input3 = b"0\r\n\r\n";
+        let mut mock_io = Builder::new()
+            .read(&input1[..])
+            .read(&input2[..])
+            .read(&input2_1[..])
+            .read(&input3[..])
+            .build();
+        let mut body_reader = BodyReader::new();
+        body_reader.init_chunked(rewind);
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(3, 9));
+        assert_eq!(&rewind[3..12], body_reader.get_body(&res));
+        assert_eq!(body_reader.body_state, ParseState::Chunked(9, 0, 0, 0));
+
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(3, 5));
+        assert_eq!(&input1[3..8], body_reader.get_body(&res));
+        assert_eq!(body_reader.body_state, ParseState::Chunked(14, 0, 0, 0));
+
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(3, 2));
+        assert_eq!(&input2[3..5], body_reader.get_body(&res));
+        assert_eq!(body_reader.body_state, ParseState::Chunked(16, 0, 0, 3));
+
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(0, 1));
+        assert_eq!(&input2_1[0..1], body_reader.get_body(&res));
+        assert_eq!(body_reader.body_state, ParseState::Chunked(17, 0, 0, 0));
+
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap();
+        assert_eq!(res, None);
+        assert_eq!(body_reader.body_state, ParseState::Complete(17));
+    }
+
+    #[tokio::test]
+    async fn read_with_chunk_multi_inone_read() {
+        init_log();
+        let start_input = b"c\r";
+        let start_input_1 = b"\n";
+        let input1 = b"1\r\na\r\n2\r\nbc\r\n";
+        let input2 = b"3\r\n123\r\n3\r\nefg\r\n3\r\nhi";
+        let input2_1 = b"j\r\n";
+        let input3 = b"0\r\n\r\n";
+        let mut mock_io = Builder::new()
+            .read(start_input)
+            .read(start_input_1)
+            .read(input1)
+            .read(input2)
+            .read(input2_1)
+            .read(input3)
+            .build();
+        let mut body_reader = BodyReader::new();
+        body_reader.init_chunked(b"3\r\nab");
+
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(3, 2));
+        assert_eq!(b"ab", body_reader.get_body(&res));
+        assert_eq!(body_reader.body_state, ParseState::Chunked(2, 0, 0, 3));
+
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(0, 1));
+        assert_eq!(&start_input[0..1], body_reader.get_body(&res));
+        assert_eq!(body_reader.body_state, ParseState::Chunked(3, 0, 0, 1));
+
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef(0, 0));
+        assert_eq!(body_reader.body_state, ParseState::Chunked(3, 0, 0, 0));
+
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(3, 1));
+        assert_eq!(&input1[3..4], body_reader.get_body(&res));
+        assert_eq!(body_reader.body_state, ParseState::Chunked(4, 6, 13, 0));
+        
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(9, 2));
+        assert_eq!(&input1[9..11], body_reader.get_body(&res));
+        assert_eq!(body_reader.body_state, ParseState::Chunked(6, 0, 0, 0));
+    
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(3, 3));
+        assert_eq!(&input2[3..6], body_reader.get_body(&res));
+        assert_eq!(body_reader.body_state, ParseState::Chunked(9, 8, 21, 0));
+    
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(11, 3));
+        assert_eq!(&input2[11..14], body_reader.get_body(&res));
+        assert_eq!(body_reader.body_state, ParseState::Chunked(12, 16, 21, 0));
+
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(19, 2));
+        assert_eq!(&input2[19..21], body_reader.get_body(&res));
+        assert_eq!(body_reader.body_state, ParseState::Chunked(14, 0, 0, 3));
+
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, BufRef::new(0, 1));
+        assert_eq!(&input2_1[0..1], body_reader.get_body(&res));
+        assert_eq!(body_reader.body_state, ParseState::Chunked(15, 0, 0, 0));
+
+        let res = body_reader.do_read_body(&mut mock_io).await.unwrap();
+        assert_eq!(res, None);
+        assert_eq!(body_reader.body_state, ParseState::Complete(15));
+    }
+} 

@@ -52,7 +52,7 @@ impl std::fmt::Display for ConnectProxyError {
 fn validate_connect_response(resp: Box<ResponseHeader>) -> Result<ProxyDigest> {
     if !resp.status.is_success() {
         return Error::generate_error_with_root(ErrorType::ConnectProxyError, &format!("Not STATUS 200 BUT {}", resp.status.as_str()),
-    ConnectProxyError::boxed_new(resp));
+    Some(ConnectProxyError::boxed_new(resp)));
     }
     Ok(ProxyDigest::new(resp))
 }
@@ -111,9 +111,9 @@ where
     Ok(Box::new(req))
 }
 
-pub async fn connect(stream: Stream, request_header: &ReqHeader) -> Result<Stream, ProxyDigest> {
-    let mut http = HttpSession::
-}
+// pub async fn connect(stream: Stream, request_header: &ReqHeader) -> Result<Stream, ProxyDigest> {
+//     let mut http = HttpSession::
+// }
 
 #[inline]
 fn from_request_head_to_bytes (req: &ReqHeader) -> BytesMut {

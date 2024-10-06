@@ -21,6 +21,8 @@ type BErr = Box<Error>;
 pub type Result<T, E = BErr> = StdResult<T, E>;
 #[derive(Debug, Eq, PartialEq)]
 pub enum ErrorType {
+    /*----------Writing Request/Response------------ */
+    WriteError,
     /*----------Reading Request/Response------------ */
     ReadError,
     ConnectionClosed,

@@ -1,8 +1,9 @@
 
-use bytes::{BufMut, BytesMut};
+
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use log::{debug, trace, warn};
 use crate::{http::common::{BODY_BUFFER_SIZE, PARTIAL_CHUNK_HHEAD_LIMIT}, util_code::buf_ref::BufRef};
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use gateway_error::{error_trait::OrErr, Error, ErrorType, Result as Result};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -13,6 +14,15 @@ pub enum ParseState {
     Chunked(ReadBytes, NxtChunkStartIdx, NxtChunkEndIdx, RemainingBytes),
     Done(ReadBytes),
     HTTP1_0(ReadBytes),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BodyMode {
+    ToSelect,
+    ContentLength(TotalLength, AlreadyLength),
+    ChunkEncoing(AlreadyLength),
+    HTTP1_0(AlreadyLength),
+    Complete(AlreadyLength),
 }
 
 type PS = ParseState;
@@ -64,6 +74,99 @@ impl ParseState {
         match self {
             PS::Chunked(read, _, _, _) => PS::Chunked(*read, 0, buf_end, 0),
             _ => self.clone(), /* invalid transaction */
+        }
+    }
+}
+
+pub struct BodyWriter {
+    pub body_mode: BodyMode,
+}
+
+impl BodyWriter {
+    pub fn new() -> Self {
+        BodyWriter {
+            body_mode: BodyMode::ToSelect,
+        }
+    }
+
+    pub fn init_chunked(&mut self) {
+        self.body_mode = BodyMode::ChunkEncoing(0);
+    }
+
+    pub fn init_http10(&mut self) {
+        self.body_mode = BodyMode::HTTP1_0(0);
+    }
+
+    pub fn init_content_length(&mut self, capacity: usize) {
+        self.body_mode = BodyMode::ContentLength(capacity, 0);
+    }
+
+    pub async fn write_body<S> (&mut self, stream: &mut S, buf: &[u8]) -> Result<Option<usize>> 
+    where 
+        S: AsyncWrite + Unpin + Send,
+    {
+        trace!("Writing Body, Size: {}", buf.len());
+        match self.body_mode {
+            BodyMode::ToSelect => Ok(None),
+            BodyMode::Complete(_) => Ok(None),
+            BodyMode::ContentLength(_, _) => {Ok(None)}
+            BodyMode::ChunkEncoing(_) => {Ok(None)}
+            BodyMode::HTTP1_0(_) => {Ok(None)}
+        }
+    }
+
+    pub fn finished(&self) -> bool {
+        match self.body_mode {
+            BodyMode::Complete(_) => true,
+            BodyMode::ContentLength(total, written) => written >= total,
+            _ => false,
+        }
+    }
+
+    async fn do_write_partial<S>(&mut self, stream: &mut S, buf: &[u8]) -> Result<Option<usize>>
+    where  
+        S: AsyncWrite + Unpin + Send,
+    {
+        match self.body_mode {
+            BodyMode::ContentLength(total, written) => {
+                if written >= total {
+                    return Ok(None);
+                }
+                let mut to_write = total - written;
+                to_write = to_write.min(buf.len());
+                let res = stream.write_all(&buf[..to_write]).await;
+                match res {
+                    Ok(()) => {
+                        self.body_mode = BodyMode::ContentLength(total, written + to_write);
+                        if self.finished() {
+                            stream.flush().await.or_err(ErrorType::WriteError, "when flushing body")?;
+                        }
+                        Ok(Some(to_write))
+                    },
+                    Err(e) => Error::generate_error_with_root(ErrorType::WriteError, "while writing body", Some(Box::new(e))),
+                }
+            },
+            _ => panic!("wrong function called: do_write_partial"),
+        }
+    }
+
+    async fn do_write_chunked<S>(&mut self, stream: &mut S, buf: &[u8]) -> Result<Option<usize>>
+    where 
+        S: AsyncWrite + Unpin + Send,
+    {
+        match self.body_mode {
+            BodyMode::ChunkEncoing(written) => {
+                let chunk_size = buf.len();
+                let chunk_size_buf = format!("{:X}\r\n", chunk_size);
+                let mut output_buf = Bytes::from(chunk_size_buf).chain(buf).chain(&b"\r\n"[..]);
+                stream.write_all_buf(&mut output_buf)
+                    .await
+                    .or_err(ErrorType::WriteError, "while writing body")?;
+                stream.flush().await.or_err(ErrorType::WriteError, "flushing body")?;
+                self.body_mode = BodyMode::ChunkEncoing(written + chunk_size);
+                Ok(Some(chunk_size))
+            }
+            _ => panic!("wrong body mode do_write_chunk"),
         }
     }
 }
@@ -363,7 +466,8 @@ type ReadBytes = usize;
 type RemainingBytes = usize;
 type NxtChunkStartIdx = usize;
 type NxtChunkEndIdx = usize;
-
+type TotalLength = usize;
+type AlreadyLength = usize;
 
 ///
 /// unit test read body!
@@ -700,3 +804,22 @@ mod partial_test {
         assert_eq!(body_reader.body_state, ParseState::Complete(15));
     }
 } 
+
+#[cfg(test)]
+mod write_body_test {
+    use tokio_test::io::Builder;
+    use crate::connections::row_connection::ConnectProxyError;
+    use super::*;
+
+    fn init_log() {
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
+
+    #[tokio::test]
+    async fn write_body_partial() {
+        init_log();
+        let output = b"abcd";
+        let mut mock_io = Builder::new().write(&output[..]).build();
+        let mut body_writer = BodyWre
+    }
+}

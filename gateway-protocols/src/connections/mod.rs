@@ -4,6 +4,7 @@ use http::HeaderMap;
 pub mod row_connection;
 pub mod response;
 pub mod request;
+pub mod stream;
 
 pub enum Opt {
     INSERT,

@@ -1,5 +1,7 @@
 
 
+use std::collections::HashMap;
+
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use log::{debug, trace, warn};
 use crate::{http::common::{BODY_BUFFER_SIZE, PARTIAL_CHUNK_HHEAD_LIMIT}, util_code::buf_ref::BufRef};
@@ -154,12 +156,13 @@ impl BodyWriter {
     where 
         S: AsyncWrite + Unpin + Send,
     {
+        use crate::connections::stream::AsyncWriteVec;
         match self.body_mode {
             BodyMode::ChunkEncoing(written) => {
                 let chunk_size = buf.len();
                 let chunk_size_buf = format!("{:X}\r\n", chunk_size);
                 let mut output_buf = Bytes::from(chunk_size_buf).chain(buf).chain(&b"\r\n"[..]);
-                stream.write_all_buf(&mut output_buf)
+                stream.write_vec_all(&mut output_buf)
                     .await
                     .or_err(ErrorType::WriteError, "while writing body")?;
                 stream.flush().await.or_err(ErrorType::WriteError, "flushing body")?;
@@ -167,6 +170,26 @@ impl BodyWriter {
                 Ok(Some(chunk_size))
             }
             _ => panic!("wrong body mode do_write_chunk"),
+        }
+    }
+
+    async fn do_write_http1_0_body<S> (&mut self, stream: &mut S, buf: &[u8]) -> Result<Option<usize>>
+    where
+        S: AsyncWrite + Unpin + Send
+    {
+        match self.body_mode {
+            BodyMode::HTTP1_0(written) => {
+                let res = stream.write_all(buf).await;
+                match res {
+                    Ok(()) => {
+                        self.body_mode = BodyMode::HTTP1_0(written + buf.len());
+                        stream.flush().await.or_err(ErrorType::WriteError, "flushing body")?;
+                        Ok(Some(buf.len()))
+                    }
+                    Err(e) => Error::generate_error_with_root(ErrorType::WriteError, "while writing body", Some(Box::new(e)))
+                }
+            }
+            _ => panic!("wrong body mode function: do_write_http1_0_body"),
         }
     }
 }

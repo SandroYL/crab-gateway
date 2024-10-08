@@ -1,11 +1,15 @@
 use std::io;
 
-use tokio::net::{TcpListener, UnixListener};
+use tokio::net::TcpListener;
+
+use super::stream::Stream;
 pub enum Listener {
     Tcp(TcpListener),
-    Unix(UnixListener),
+    Unix(),
 }
 
 impl Listener {
-    pub async fn accept(&self) -> io::Result<Stream>
+    pub async fn accept(&self) -> io::Result<Stream> {
+        todo!()
+    }
 }

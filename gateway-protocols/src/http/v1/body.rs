@@ -111,13 +111,26 @@ impl BodyWriter {
         match self.body_mode {
             BodyMode::ToSelect => Ok(None),
             BodyMode::Complete(_) => Ok(None),
-            BodyMode::ContentLength(_, _) => {Ok(None)}
-            BodyMode::ChunkEncoing(_) => {Ok(None)}
-            BodyMode::HTTP1_0(_) => {Ok(None)}
+            BodyMode::ContentLength(_, _) => self.do_write_partial(stream, buf).await,
+            BodyMode::ChunkEncoing(_) => self.do_write_chunked(stream, buf).await,
+            BodyMode::HTTP1_0(_) => self.do_write_http1_0_body(stream, buf).await,
         }
     }
 
-    pub fn finished(&self) -> bool {
+    pub async fn finish<S>(&mut self, stream: &mut S) -> Result<Option<usize>>
+    where 
+        S: AsyncWrite + Unpin + Send,
+    {
+        match self.body_mode {
+            BodyMode::Complete(_) => Ok(None),
+            BodyMode::ToSelect => Ok(None),
+            BodyMode::ContentLength(_, _) => self.do_finish_write_partial(stream).await,
+            BodyMode::ChunkEncoing(_) => self.do_finish_write_chunked(stream).await,
+            BodyMode::HTTP1_0(_) => self.do_finish_write_http_1_0(stream).await,
+        }
+    }
+
+    pub fn finish_partial_write(&self) -> bool {
         match self.body_mode {
             BodyMode::Complete(_) => true,
             BodyMode::ContentLength(total, written) => written >= total,
@@ -140,7 +153,7 @@ impl BodyWriter {
                 match res {
                     Ok(()) => {
                         self.body_mode = BodyMode::ContentLength(total, written + to_write);
-                        if self.finished() {
+                        if self.finish_partial_write() {
                             stream.flush().await.or_err(ErrorType::WriteError, "when flushing body")?;
                         }
                         Ok(Some(to_write))
@@ -191,6 +204,33 @@ impl BodyWriter {
             }
             _ => panic!("wrong body mode function: do_write_http1_0_body"),
         }
+    }
+
+    async fn do_finish_write_partial<S>(&mut self, stream: &mut S) -> Result<Option<usize>>
+    where S: AsyncWrite + Unpin + Send
+    {
+        match self.body_mode {
+            BodyMode::ContentLength(total, written) => {
+                self.body_mode = BodyMode::Complete(written);
+                if written < total {
+                    return Error::generate_error_with_root(ErrorType::ConnectionClosed, &format!("Content-length: {total} bytes written: {written}"), None);
+                }
+                Ok(Some(written))
+            }
+            _ => panic!("wrong body mode {:?}", self.body_mode),
+        }
+    }
+
+    async fn do_finish_write_chunked<S>(&mut self, stream: &mut S) -> Result<Option<usize>>
+    where S: AsyncWrite + Unpin + Send
+    {
+        todo!()
+    }
+
+    async fn do_finish_write_http_1_0<S>(&mut self, stream: &mut S) -> Result<Option<usize>>
+    where S: AsyncWrite + Unpin + Send
+    {
+        todo!()
     }
 }
 
@@ -495,7 +535,7 @@ type AlreadyLength = usize;
 ///
 /// unit test read body!
 #[cfg(test)]
-mod partial_test {
+mod read_body_test {
     use tokio_test::io::Builder;
 
     use crate::connections::row_connection::ConnectProxyError;
@@ -830,6 +870,7 @@ mod partial_test {
 
 #[cfg(test)]
 mod write_body_test {
+
     use tokio_test::io::Builder;
     use crate::connections::row_connection::ConnectProxyError;
     use super::*;
@@ -843,6 +884,7 @@ mod write_body_test {
         init_log();
         let output = b"abcd";
         let mut mock_io = Builder::new().write(&output[..]).build();
-        let mut body_writer = BodyWre
+        todo!();
+        //let mut body_writer = BodyWre;
     }
 }

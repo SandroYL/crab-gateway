@@ -224,13 +224,29 @@ impl BodyWriter {
     async fn do_finish_write_chunked<S>(&mut self, stream: &mut S) -> Result<Option<usize>>
     where S: AsyncWrite + Unpin + Send
     {
-        todo!()
+        match self.body_mode {
+            BodyMode::ChunkEncoing(written) => {
+                let res = stream.write_all(b"0\r\n\r\n").await;
+                self.body_mode = BodyMode::Complete(written);
+                match res {
+                    Ok(()) => Ok(Some(written)),
+                    Err(e) => Error::generate_error_with_root(ErrorType::WriteError, "while writing body do_finish_write_chunked", None)
+                }
+            }
+            _ => panic!("wrong body mode: {:?}", self.body_mode),
+        }
     }
 
     async fn do_finish_write_http_1_0<S>(&mut self, stream: &mut S) -> Result<Option<usize>>
     where S: AsyncWrite + Unpin + Send
     {
-        todo!()
+        match self.body_mode {
+            BodyMode::HTTP1_0(written) => {
+                self.body_mode = BodyMode::Complete(written);
+                Ok(Some(written))
+            }
+            _ => panic!("wrong body mode: {:?}", self.body_mode),
+        }
     }
 }
 
@@ -884,7 +900,41 @@ mod write_body_test {
         init_log();
         let output = b"abcd";
         let mut mock_io = Builder::new().write(&output[..]).build();
-        todo!();
-        //let mut body_writer = BodyWre;
+        let mut body_writer = BodyWriter::new();
+        body_writer.init_content_length(4);
+        assert_eq!(body_writer.body_mode, BodyMode::ContentLength(4, 0));
+
+        let res = body_writer
+            .write_body(&mut mock_io, &output[..])
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(res, 4);
+        assert_eq!(body_writer.body_mode, BodyMode::ContentLength(4, 4));
+
+        let res = body_writer
+            .write_body(&mut mock_io, &output[..])
+            .await
+            .unwrap();
+
+        assert_eq!(res, None);
+        assert_eq!(body_writer.body_mode, BodyMode::ContentLength(4, 4));
+        let res = body_writer.finish(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, 4);
+        assert_eq!(body_writer.body_mode, BodyMode::Complete(4));
+    }
+
+    #[tokio::test]
+    async fn write_body_chunk() {
+        init_log();
+        let data = b"12345678911";
+        let output = b"B\r\n12345678911\r\n";
+        let mut mock_io = Builder::new()
+            .write(&output[..])
+            .write(&output[..])
+            .write(b"0\r\n\r\n")
+            .build();
+
     }
 }

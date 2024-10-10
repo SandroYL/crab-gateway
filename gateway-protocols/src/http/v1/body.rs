@@ -935,6 +935,58 @@ mod write_body_test {
             .write(&output[..])
             .write(b"0\r\n\r\n")
             .build();
+        let mut body_writer = BodyWriter::new();
+        body_writer.init_chunked();
+        assert_eq!(body_writer.body_mode, BodyMode::ChunkEncoing(0));
+        let res = body_writer
+            .write_body(&mut mock_io, &data[..])
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(res, data.len());
+        assert_eq!(body_writer.body_mode, BodyMode::ChunkEncoing(data.len()));
 
+        let res = body_writer
+            .write_body(&mut mock_io, &data[..])
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(res, data.len());
+        assert_eq!(body_writer.body_mode, BodyMode::ChunkEncoing(data.len() * 2));
+
+
+        let res = body_writer.finish(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, data.len() * 2);
+        assert_eq!(body_writer.body_mode, BodyMode::Complete(data.len() * 2));
+    }
+
+    #[tokio::test]
+    async fn write_body_http10() {
+        init_log();
+        let data = b"abcde";
+        let mut mock_io = Builder::new().write(&data[..]).write(&data[..]).build();
+        let mut body_writer = BodyWriter::new();
+        body_writer.init_http10();
+        assert_eq!(body_writer.body_mode, BodyMode::HTTP1_0(0));
+        let res = body_writer
+            .write_body(&mut mock_io, &data[..])
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(res, data.len());
+        assert_eq!(body_writer.body_mode, BodyMode::HTTP1_0(data.len()));
+
+        let res = body_writer
+            .write_body(&mut mock_io, &data[..])
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(res, data.len());
+        assert_eq!(body_writer.body_mode, BodyMode::HTTP1_0(data.len() * 2));
+
+
+        let res = body_writer.finish(&mut mock_io).await.unwrap().unwrap();
+        assert_eq!(res, data.len() * 2);
+        assert_eq!(body_writer.body_mode, BodyMode::Complete(data.len() * 2));
     }
 }

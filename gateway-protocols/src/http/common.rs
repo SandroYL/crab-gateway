@@ -1,6 +1,8 @@
 use core::fmt::Debug;
-use std::any::Any;
+use std::{any::Any, time::Duration};
 use tokio::io::{AsyncRead, AsyncWrite};
+
+use crate::connections::digest::{GetProxyDigest, GetTimingDigest};
 
 pub(super) const MAX_HEADERS: usize = 256;
 
@@ -22,7 +24,12 @@ pub type Stream = Box<dyn IO>;
 pub trait UniqueID {
     fn id(&self) -> i32;
 }
-
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum KeepaliveStatus {
+    Timeout(Duration),
+    Infinite,
+    Off,
+}
 /// The abstraction of transport layer IO
 pub trait IO:
     AsyncRead
@@ -32,6 +39,8 @@ pub trait IO:
     + Debug
     + Send
     + Sync
+    + GetTimingDigest
+    + GetProxyDigest
 {
     /// helper to cast as the reference of the concrete type
     fn as_any(&self) -> &dyn Any;

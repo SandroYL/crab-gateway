@@ -18,6 +18,7 @@ impl ProxyDigest {
     }
 }
 
+
 #[derive(Debug)]
 pub struct ConnectProxyError {
     pub response: Box<ResponseHeader>,

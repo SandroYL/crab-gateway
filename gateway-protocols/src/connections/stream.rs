@@ -1,6 +1,9 @@
 use std::{future::Future, io::{self, IoSlice}, pin::Pin, task::{ready, Context, Poll}};
 use bytes::Buf;
-use tokio::io::AsyncWrite;
+use tokio::io::{AsyncWrite, BufStream};
+
+
+use super::digest::{GetTimingDigest, TimingDigest};
 
 pub trait AsyncWriteVec {
     fn poll_write_vec<B: Buf>(
@@ -105,3 +108,4 @@ where
         Poll::Ready(Ok(n))
     }
 }
+

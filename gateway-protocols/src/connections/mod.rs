@@ -5,6 +5,7 @@ pub mod row_connection;
 pub mod response;
 pub mod request;
 pub mod stream;
+pub mod digest;
 
 pub enum Opt {
     INSERT,

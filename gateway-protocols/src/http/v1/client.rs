@@ -1,8 +1,9 @@
 use std::time::Duration;
 
 use bytes::Bytes;
+use http::HeaderMap;
 
-use crate::{connections::{digest::Digest, request::RequestHeader, response::ResponseHeader}, http::common::{KeepaliveStatus, Stream}, util_code::buf_ref::BufRef};
+use crate::{connections::{digest::Digest, request::RequestHeader, response::ResponseHeader}, http::common::{is_upgrade_req, KeepaliveStatus, Stream}, util_code::buf_ref::BufRef};
 
 use super::body::{BodyReader, BodyWriter};
 
@@ -47,5 +48,22 @@ impl HttpSession {
             bytes_sent: 0,
             upgraded: false,
         }
+    }
+
+    pub async fn write_request_header(&mut self, req: Box<RequestHeader>) -> Result<usize> {
+        self.init
+    }
+
+    fn init_req_body_writer(&mut self, header: &RequestHeader) {
+        if is_upgrade_req(header) {
+            self.body_writer.init_http10();
+        } else {
+            self.init_body_writer_comm(&header.headers);
+        }
+    }
+
+    fn init_body_writer_comm(&mut self, headers: &HeaderMap) {
+        let te_value = headers.get(http::header::TRANSFER_ENCODING);
+        
     }
 }

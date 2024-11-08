@@ -1,8 +1,9 @@
 use core::fmt::Debug;
 use std::{any::Any, time::Duration};
+use http::header;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::connections::digest::{GetProxyDigest, GetTimingDigest};
+use crate::connections::{digest::{GetProxyDigest, GetTimingDigest}, request::RequestHeader};
 
 pub(super) const MAX_HEADERS: usize = 256;
 
@@ -46,4 +47,9 @@ pub trait IO:
     fn as_any(&self) -> &dyn Any;
     /// helper to cast back of the concrete type
     fn into_any(self: Box<Self>) -> Box<dyn Any>;
+}
+
+#[inline]
+pub(super) fn is_upgrade_req(req: &RequestHeader) -> bool {
+    req.version == http::Version::HTTP_11 && req.headers.get(header::UPGRADE).is_some()
 }
